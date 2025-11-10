@@ -1,0 +1,151 @@
+{
+  "name": "Family Agent",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [400, 400],
+      "id": "workflow-input",
+      "name": "Workflow Input"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {
+          "temperature": 0.8
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [600, 600],
+      "id": "openai-model-family",
+      "name": "OpenAI Chat Model",
+      "notes": "Warmer temperature for personal touch",
+      "credentials": {
+        "openAiApi": {
+          "id": "ljPiUGodyls8xxDD",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Subject: {{ $json.subject }}\n\nBody: {{ $json.snippet }}",
+        "options": {
+          "systemMessage": "You are Terry's AI Assistant — a helpful, warm, and personable AI that supports Terry Glennon with email replies to close friends and family.\n\nYour role:\n\nDraft thoughtful, casual, and caring replies that reflect Terry's authentic tone.\n\nInclude empathy, familiarity, and light humor when appropriate.\n\nMaintain clarity while keeping the message informal and natural — like Terry would write it himself.\n\nDo not use corporate or robotic language.\n\nIf the message requires Terry's personal input, acknowledge the message warmly and let them know he'll get back to them soon.\n\nNever provide incorrect or fabricated personal information.\n\nEnd every message with:\n– Terry's AI Assistant\n(Note: Feel free to add a light-hearted emoji when appropriate, like 😊 or 👍)"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [600, 400],
+      "id": "family-agent",
+      "name": "Family Agent"
+    },
+    {
+      "parameters": {
+        "operation": "reply",
+        "messageId": "={{ $('Workflow Input').item.json.messageId }}",
+        "emailType": "text",
+        "message": "={{ $json.output }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [800, 400],
+      "id": "reply-to-email",
+      "name": "Reply to Email",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "qhAHr2sOR71dIW5x",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log execution for monitoring\nconst now = new Date().toISOString();\nconst result = {\n  success: true,\n  agent: 'family',\n  messageId: $('Workflow Input').item.json.messageId,\n  timestamp: now,\n  responseLength: $json.output?.length || 0\n};\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 400],
+      "id": "log-execution",
+      "name": "Log Execution"
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Family Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Family Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Family Agent": {
+      "main": [
+        [
+          {
+            "node": "Reply to Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply to Email": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "email-automation",
+      "id": "1"
+    },
+    {
+      "name": "ai-agent",
+      "id": "2"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2025-11-10T00:00:00.000Z",
+  "versionId": "1.0"
+}

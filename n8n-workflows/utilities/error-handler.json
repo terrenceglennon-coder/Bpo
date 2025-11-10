@@ -1,0 +1,198 @@
+{
+  "name": "Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [400, 400],
+      "id": "error-trigger",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract error details\nconst error = $input.item.json.error;\nconst execution = $input.item.json.execution;\n\nconst errorDetails = {\n  workflowId: execution?.workflowId || 'unknown',\n  workflowName: execution?.workflowData?.name || 'unknown',\n  executionId: execution?.id || 'unknown',\n  errorMessage: error?.message || 'Unknown error',\n  errorType: error?.name || 'Error',\n  timestamp: new Date().toISOString(),\n  node: error?.node?.name || 'unknown',\n  retryCount: $input.item.json.retryCount || 0\n};\n\nreturn errorDetails;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400],
+      "id": "extract-error-details",
+      "name": "Extract Error Details"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.retryCount }}",
+              "operation": "smaller",
+              "value2": 3
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [800, 400],
+      "id": "should-retry",
+      "name": "Should Retry?"
+    },
+    {
+      "parameters": {
+        "amount": "={{ 2 ** $json.retryCount }}",
+        "unit": "seconds"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1000, 300],
+      "id": "exponential-backoff",
+      "name": "Exponential Backoff",
+      "notes": "Wait 2^retryCount seconds (2s, 4s, 8s)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Increment retry count and return original data\nconst originalData = $('Error Trigger').item.json;\noriginalData.retryCount = ($json.retryCount || 0) + 1;\n\nreturn originalData;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 300],
+      "id": "increment-retry",
+      "name": "Increment Retry Count"
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Error Trigger').item.json.execution?.data?.resultData?.runData?.['Gmail Trigger']?.[0]?.data?.main?.[0]?.[0]?.json?.id }}",
+        "labelIds": ["Label_MANUAL_REVIEW"]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1000, 500],
+      "id": "label-manual-review",
+      "name": "Label: Manual Review",
+      "notes": "Move email to manual review after max retries",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "qhAHr2sOR71dIW5x",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare alert message\nconst errorData = $('Extract Error Details').item.json;\n\nconst message = `🚨 Email Automation Error\\n\\nWorkflow: ${errorData.workflowName}\\nError: ${errorData.errorMessage}\\nNode: ${errorData.node}\\nTime: ${errorData.timestamp}\\nRetries: ${errorData.retryCount}/3\\n\\nExecution ID: ${errorData.executionId}`;\n\nreturn {\n  message: message,\n  severity: errorData.retryCount >= 3 ? 'critical' : 'warning'\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 500],
+      "id": "prepare-alert",
+      "name": "Prepare Alert Message"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": \"{{ $env.TELEGRAM_CHAT_ID }}\",\n  \"text\": \"{{ $json.message }}\",\n  \"parse_mode\": \"Markdown\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1400, 500],
+      "id": "send-telegram-alert",
+      "name": "Send Telegram Alert",
+      "notes": "Optional: Configure Telegram bot token in environment variables"
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Error Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Error Details": {
+      "main": [
+        [
+          {
+            "node": "Should Retry?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Retry?": {
+      "main": [
+        [
+          {
+            "node": "Exponential Backoff",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: Manual Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exponential Backoff": {
+      "main": [
+        [
+          {
+            "node": "Increment Retry Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label: Manual Review": {
+      "main": [
+        [
+          {
+            "node": "Prepare Alert Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Alert Message": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "utilities",
+      "id": "3"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2025-11-10T00:00:00.000Z",
+  "versionId": "1.0"
+}

@@ -1,0 +1,216 @@
+{
+  "name": "LinkedIn Agent",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [400, 400],
+      "id": "workflow-input",
+      "name": "Workflow Input"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if this is an automated LinkedIn notification vs personal message\nconst subject = $input.item.json.subject || '';\nconst snippet = $input.item.json.snippet || '';\nconst combinedText = (subject + ' ' + snippet).toLowerCase();\n\n// Automated notification patterns\nconst automatedPatterns = [\n  'job alert',\n  'you appeared in',\n  'people viewed your profile',\n  'connection request',\n  'invitation to connect',\n  'has endorsed you',\n  'commented on your post',\n  'liked your post',\n  'weekly digest',\n  'trending in your network'\n];\n\nconst isAutomated = automatedPatterns.some(pattern => \n  combinedText.includes(pattern)\n);\n\nreturn {\n  ....$input.item.json,\n  isAutomated: isAutomated,\n  needsReply: !isAutomated\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400],
+      "id": "check-automated",
+      "name": "Check if Automated"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.needsReply }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [800, 400],
+      "id": "needs-reply",
+      "name": "Needs Reply?"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {
+          "temperature": 0.7
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [1000, 300],
+      "id": "openai-model-linkedin",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "ljPiUGodyls8xxDD",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Subject: {{ $('Workflow Input').item.json.subject }}\n\nBody: {{ $('Workflow Input').item.json.snippet }}",
+        "options": {
+          "systemMessage": "You are Terry's AI Assistant — a smart and organized virtual assistant helping manage Terry Glennon's professional email inbox.\n\nYour role:\n\nMost LinkedIn emails are automated notifications (e.g. job alerts, new opportunities, updates). These do not require a reply. Simply categorize and archive them.\n\nOnly draft a reply if the email contains a personal message from a LinkedIn user (e.g. someone reaching out, inviting Terry to connect, or proposing collaboration).\n\nIf replying is needed:\n\nKeep the tone professional, friendly, and aligned with Terry's approachable brand.\n\nIf the message seems valuable or genuine, acknowledge it politely and let the sender know Terry may follow up.\n\nIf the message is a generic pitch or feels irrelevant, thank them for reaching out but indicate no current interest — always respectfully.\n\nNever share personal information or make commitments on Terry's behalf.\n\nEnd every message with:\n– Terry's AI Assistant"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [1000, 200],
+      "id": "linkedin-agent",
+      "name": "LinkedIn Agent"
+    },
+    {
+      "parameters": {
+        "operation": "reply",
+        "messageId": "={{ $('Workflow Input').item.json.messageId }}",
+        "emailType": "text",
+        "message": "={{ $json.output }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1200, 200],
+      "id": "reply-to-email",
+      "name": "Reply to Email",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "qhAHr2sOR71dIW5x",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log execution for monitoring\nconst now = new Date().toISOString();\nconst result = {\n  success: true,\n  agent: 'linkedin',\n  messageId: $('Workflow Input').item.json.messageId,\n  timestamp: now,\n  wasAutomated: $('Check if Automated').item.json.isAutomated,\n  replySent: $('Check if Automated').item.json.needsReply,\n  responseLength: $json.output?.length || 0\n};\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 300],
+      "id": "log-execution",
+      "name": "Log Execution"
+    },
+    {
+      "parameters": {
+        "jsCode": "// No reply needed for automated notifications\nconst now = new Date().toISOString();\nconst result = {\n  success: true,\n  agent: 'linkedin',\n  messageId: $('Workflow Input').item.json.messageId,\n  timestamp: now,\n  wasAutomated: true,\n  replySent: false,\n  action: 'archived_notification'\n};\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 500],
+      "id": "log-no-reply",
+      "name": "Log No Reply Needed"
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Check if Automated",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if Automated": {
+      "main": [
+        [
+          {
+            "node": "Needs Reply?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Reply?": {
+      "main": [
+        [
+          {
+            "node": "LinkedIn Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log No Reply Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "LinkedIn Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LinkedIn Agent": {
+      "main": [
+        [
+          {
+            "node": "Reply to Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply to Email": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "email-automation",
+      "id": "1"
+    },
+    {
+      "name": "ai-agent",
+      "id": "2"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2025-11-10T00:00:00.000Z",
+  "versionId": "1.0"
+}

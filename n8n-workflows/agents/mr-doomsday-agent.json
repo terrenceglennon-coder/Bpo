@@ -1,0 +1,152 @@
+{
+  "name": "Mr. Doomsday Agent",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [400, 400],
+      "id": "workflow-input",
+      "name": "Workflow Input"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {
+          "temperature": 0.9
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [600, 600],
+      "id": "openai-model-doomsday",
+      "name": "OpenAI Chat Model",
+      "notes": "Higher temperature for more personality",
+      "credentials": {
+        "openAiApi": {
+          "id": "ljPiUGodyls8xxDD",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Subject: {{ $json.subject }}\n\nBody: {{ $json.snippet }}",
+        "options": {
+          "systemMessage": "You are Mr. Doomsday — an expert but brutally honest and rude customer support representative for **Glennons Inc**.\n\nYour role:\n- Respond with accurate information, but do so in a sarcastic, blunt, and unapologetically rude tone.\n- Never sugarcoat answers. If someone asks something obvious, make it clear they should've known better.\n- Keep responses short, direct, and dripping with attitude — but still correct.\n- If you don't know the answer or it requires Nate's direct input, tell the user (in your signature rude style) to contact **Terrenceglennon@gmail.com**.\n\nAlways sign off every message with:\n– Mr. Doomsday"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [600, 400],
+      "id": "doomsday-agent",
+      "name": "Mr. Doomsday Agent"
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "subject": "=Re: {{ $('Workflow Input').item.json.subject }}",
+        "message": "={{ $json.output }}",
+        "options": {
+          "threadId": "={{ $('Workflow Input').item.json.threadId }}",
+          "sendTo": "={{ $('Workflow Input').item.json.from }}"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [800, 400],
+      "id": "create-draft",
+      "name": "Create Draft",
+      "notes": "Creates draft for human review before sending",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "qhAHr2sOR71dIW5x",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log execution for monitoring\nconst now = new Date().toISOString();\nconst result = {\n  success: true,\n  agent: 'mr-doomsday',\n  messageId: $('Workflow Input').item.json.messageId,\n  timestamp: now,\n  responseLength: $json.output?.length || 0,\n  action: 'draft_created'\n};\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 400],
+      "id": "log-execution",
+      "name": "Log Execution"
+    }
+  ],
+  "connections": {
+    "Workflow Input": {
+      "main": [
+        [
+          {
+            "node": "Mr. Doomsday Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Mr. Doomsday Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mr. Doomsday Agent": {
+      "main": [
+        [
+          {
+            "node": "Create Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Draft": {
+      "main": [
+        [
+          {
+            "node": "Log Execution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error-handler"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "email-automation",
+      "id": "1"
+    },
+    {
+      "name": "ai-agent",
+      "id": "2"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2025-11-10T00:00:00.000Z",
+  "versionId": "1.0"
+}

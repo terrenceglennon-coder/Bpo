@@ -1,0 +1,720 @@
+{
+  "name": "Email Automation - Main (Optimized)",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute",
+              "minute": 5
+            }
+          ]
+        },
+        "filters": {}
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.3,
+      "position": [400, 400],
+      "id": "gmail-trigger-optimized",
+      "name": "Gmail Trigger",
+      "notes": "Changed to poll every 5 minutes instead of 1 minute (80% fewer executions)",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "qhAHr2sOR71dIW5x",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// PRE-FILTERING: Skip AI for obvious categories\nconst subject = $input.item.json.Subject || '';\nconst snippet = $input.item.json.snippet || '';\nconst from = $input.item.json.from?.value?.[0]?.address || '';\nconst combinedText = (subject + ' ' + snippet).toLowerCase();\n\n// Initialize result\nlet result = {\n  ....$input.item.json,\n  preFilterCategory: null,\n  skipAI: false,\n  cacheKey: null,\n  needsClassification: true\n};\n\n// 1. Check for LinkedIn (highest priority for LinkedIn)\nif (from.includes('linkedin.com') || combinedText.includes('linkedin')) {\n  result.preFilterCategory = 'Linkedin';\n  result.skipAI = true;\n  result.needsClassification = false;\n}\n// 2. Check for promotions\nelse if (\n  combinedText.match(/\\b(sale|discount|offer|promotion|deal|limited time|exclusive|buy now)\\b/)\n) {\n  result.preFilterCategory = 'Promotion';\n  result.skipAI = true;\n  result.needsClassification = false;\n}\n// 3. Check for out of office\nelse if (\n  combinedText.includes('out of office') ||\n  combinedText.includes('automatic reply') ||\n  combinedText.includes('away from my desk')\n) {\n  result.preFilterCategory = 'Ignore';\n  result.skipAI = true;\n  result.needsClassification = false;\n}\n// 4. Generate cache key for remaining emails\nelse {\n  // Create cache key: normalize text and hash it\n  const normalizedText = combinedText\n    .replace(/\\d+/g, 'NUM') // Replace numbers with NUM\n    .replace(/[^\\w\\s]/g, '') // Remove special characters\n    .substring(0, 100); // First 100 chars\n  \n  result.cacheKey = normalizedText;\n  result.needsClassification = true;\n}\n\n// Limit snippet to 200 chars to reduce tokens\nif (result.snippet && result.snippet.length > 200) {\n  result.snippet = result.snippet.substring(0, 200) + '...';\n}\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 400],
+      "id": "pre-filter-node",
+      "name": "Pre-Filter & Cache Key",
+      "notes": "Skips AI for obvious categories (LinkedIn, Promotions, OOO)"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.skipAI }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [800, 400],
+      "id": "check-skip-ai",
+      "name": "Skip AI?",
+      "notes": "If pre-filtered, skip classification"
+    },
+    {
+      "parameters": {
+        "inputText": "=Subject: {{ $json.Subject }}\n\nBody: {{ $json.snippet }}",
+        "categories": {
+          "categories": [
+            {
+              "category": "Customer Support",
+              "description": "Emails seeking help or guidance for using a product or service. These usually report problems like login issues, bugs, or functionality errors that aren't time-critical.\nExpanded Keywords: help, issue, support, error, reset, fix, login, troubleshoot, can't, question, not working"
+            },
+            {
+              "category": "Finance/Billing",
+              "description": "Emails related to payments, charges, invoices, or subscription details. The sender is usually requesting an update, refund, or correction.\nExpanded Keywords: invoice, refund, payment, billing, subscription, charge, receipt, overcharged, decline, failed transaction, cancel, renewal"
+            },
+            {
+              "category": "High Priority",
+              "description": "Emails marked by urgency or escalation, often involving outages, system failures, or time-critical issues that need immediate action.\nExpanded Keywords: urgent, ASAP, emergency, escalation, outage, down, broken, immediately, help now, fix fast"
+            },
+            {
+              "category": "Promotion",
+              "description": "Emails with promotional content offering discounts, product updates, or invitations to join or purchase something. These are sales-driven and often use upbeat language.\nExpanded Keywords: sale, discount, offer, promotion, upgrade, exclusive, feature, join now, limited time, access now, new launch"
+            },
+            {
+              "category": "Family",
+              "description": "Personal emails from family, friends, or close acquaintances. These messages are usually informal, emotional, or conversational and unrelated to business.\nExpanded Keywords: hi, hey, how are you, family, friend, catching up, love, miss you, birthday, update, just checking in, weekend, Mom, Dad\n\nFamily has president over all other categories "
+            },
+            {
+              "category": "Uncategorized",
+              "description": "Emails that don't clearly fit any of the defined categories. These may be vague, irrelevant, or unclassified messages. Keywords: N/A"
+            },
+            {
+              "category": "Linkedin",
+              "description": "Emails from LinkedIn, including job alerts, connection suggestions, profile updates, and platform notifications. Occasionally includes direct messages from other users.  Common keywords: LinkedIn, job alert, opportunity, connection, message, recruiter, profile, network, hiring, suggested, update, post, invite\nIf it has the word LinkedIn classify as LinkedIn over any other "
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.textClassifier",
+      "typeVersion": 1.1,
+      "position": [1000, 500],
+      "id": "text-classifier-optimized",
+      "name": "Text Classifier",
+      "notes": "Now uses GPT-4o-mini (10x cheaper than GPT-3.5-turbo)"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [1000, 700],
+      "id": "openai-classifier-model",
+      "name": "OpenAI Chat Model - Classifier",
+      "notes": "Changed to gpt-4o-mini for 10x cost savings",
+      "credentials": {
+        "openAiApi": {
+          "id": "ljPiUGodyls8xxDD",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}",
+        "labelIds": ["Label_6757531662219822625"]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1400, 100],
+      "id": "label-support",
+      "name": "Label: Support",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "qhAHr2sOR71dIW5x",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ 'customer-support-agent' }}",
+        "fieldsUi": {
+          "values": [
+            {
+              "name": "messageId",
+              "value": "={{ $('Gmail Trigger').item.json.id }}"
+            },
+            {
+              "name": "subject",
+              "value": "={{ $('Gmail Trigger').item.json.Subject }}"
+            },
+            {
+              "name": "snippet",
+              "value": "={{ $('Pre-Filter & Cache Key').item.json.snippet }}"
+            },
+            {
+              "name": "from",
+              "value": "={{ $('Gmail Trigger').item.json.from.value[0].address }}"
+            },
+            {
+              "name": "threadId",
+              "value": "={{ $('Gmail Trigger').item.json.threadId }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1600, 100],
+      "id": "call-support-agent",
+      "name": "Call Support Agent",
+      "notes": "Calls sub-workflow - only loads AI when needed"
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}",
+        "labelIds": ["Label_3857436212489460650"]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1400, 200],
+      "id": "label-finance",
+      "name": "Label: Finance",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "qhAHr2sOR71dIW5x",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "Tag@terryglennon.org",
+        "subject": "=New Billing Email: {{ $('Gmail Trigger').item.json.from.value[0].name }}",
+        "emailType": "text",
+        "message": "=Hey Billing team!\n\nWe received a new billing inquiry at {{ $now.format('yyyy-MM-dd hh:mm a') }}.\n\nIt is from {{ $('Gmail Trigger').item.json.from.value[0].name }} you can email them at {{ $('Gmail Trigger').item.json.from.value[0].address }}.\n\nThis is the subject of their email: {{ $('Gmail Trigger').item.json.subject }}\n\nCheers!",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1600, 200],
+      "id": "forward-to-billing",
+      "name": "Forward to Billing",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "qhAHr2sOR71dIW5x",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}",
+        "labelIds": ["Label_6807501832701202458"]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1400, 300],
+      "id": "label-priority",
+      "name": "Label: Priority",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "qhAHr2sOR71dIW5x",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ 'mr-doomsday-agent' }}",
+        "fieldsUi": {
+          "values": [
+            {
+              "name": "messageId",
+              "value": "={{ $('Gmail Trigger').item.json.id }}"
+            },
+            {
+              "name": "subject",
+              "value": "={{ $('Gmail Trigger').item.json.Subject }}"
+            },
+            {
+              "name": "snippet",
+              "value": "={{ $('Pre-Filter & Cache Key').item.json.snippet }}"
+            },
+            {
+              "name": "from",
+              "value": "={{ $('Gmail Trigger').item.json.from.value[0].address }}"
+            },
+            {
+              "name": "threadId",
+              "value": "={{ $('Gmail Trigger').item.json.threadId }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1600, 300],
+      "id": "call-doomsday-agent",
+      "name": "Call Mr. Doomsday Agent",
+      "notes": "Creates draft for review"
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}",
+        "labelIds": ["Label_9204297357399817498"]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1400, 400],
+      "id": "label-promotion",
+      "name": "Label: Promotion",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "qhAHr2sOR71dIW5x",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "markAsRead",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1600, 400],
+      "id": "mark-as-read",
+      "name": "Mark as Read",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "qhAHr2sOR71dIW5x",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}",
+        "labelIds": ["Label_440084029608709809"]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1400, 500],
+      "id": "label-family",
+      "name": "Label: Family",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "qhAHr2sOR71dIW5x",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ 'family-agent' }}",
+        "fieldsUi": {
+          "values": [
+            {
+              "name": "messageId",
+              "value": "={{ $('Gmail Trigger').item.json.id }}"
+            },
+            {
+              "name": "subject",
+              "value": "={{ $('Gmail Trigger').item.json.Subject }}"
+            },
+            {
+              "name": "snippet",
+              "value": "={{ $('Pre-Filter & Cache Key').item.json.snippet }}"
+            },
+            {
+              "name": "from",
+              "value": "={{ $('Gmail Trigger').item.json.from.value[0].address }}"
+            },
+            {
+              "name": "threadId",
+              "value": "={{ $('Gmail Trigger').item.json.threadId }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1600, 500],
+      "id": "call-family-agent",
+      "name": "Call Family Agent"
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}",
+        "labelIds": ["Label_2122971329647018707"]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1400, 600],
+      "id": "label-uncategorized",
+      "name": "Label: Uncategorized",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "qhAHr2sOR71dIW5x",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ 'uncategorized-agent' }}",
+        "fieldsUi": {
+          "values": [
+            {
+              "name": "messageId",
+              "value": "={{ $('Gmail Trigger').item.json.id }}"
+            },
+            {
+              "name": "subject",
+              "value": "={{ $('Gmail Trigger').item.json.Subject }}"
+            },
+            {
+              "name": "snippet",
+              "value": "={{ $('Pre-Filter & Cache Key').item.json.snippet }}"
+            },
+            {
+              "name": "from",
+              "value": "={{ $('Gmail Trigger').item.json.from.value[0].address }}"
+            },
+            {
+              "name": "threadId",
+              "value": "={{ $('Gmail Trigger').item.json.threadId }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1600, 600],
+      "id": "call-uncategorized-agent",
+      "name": "Call Uncategorized Agent"
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $('Gmail Trigger').item.json.id }}",
+        "labelIds": ["Label_60"]
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1400, 700],
+      "id": "label-linkedin",
+      "name": "Label: LinkedIn",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "qhAHr2sOR71dIW5x",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ 'linkedin-agent' }}",
+        "fieldsUi": {
+          "values": [
+            {
+              "name": "messageId",
+              "value": "={{ $('Gmail Trigger').item.json.id }}"
+            },
+            {
+              "name": "subject",
+              "value": "={{ $('Gmail Trigger').item.json.Subject }}"
+            },
+            {
+              "name": "snippet",
+              "value": "={{ $('Pre-Filter & Cache Key').item.json.snippet }}"
+            },
+            {
+              "name": "from",
+              "value": "={{ $('Gmail Trigger').item.json.from.value[0].address }}"
+            },
+            {
+              "name": "threadId",
+              "value": "={{ $('Gmail Trigger').item.json.threadId }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1600, 700],
+      "id": "call-linkedin-agent",
+      "name": "Call LinkedIn Agent"
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch",
+        "output": "={{ $json.preFilterCategory || 'classify' }}"
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1200, 300],
+      "id": "route-by-category",
+      "name": "Route by Category",
+      "notes": "Routes to appropriate label + agent based on category"
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Pre-Filter & Cache Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pre-Filter & Cache Key": {
+      "main": [
+        [
+          {
+            "node": "Check Skip AI?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Skip AI?": {
+      "main": [
+        [
+          {
+            "node": "Route by Category",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Text Classifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text Classifier": {
+      "main": [
+        [
+          {
+            "node": "Label: Support",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: Finance",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: Priority",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: Promotion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: Family",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: Uncategorized",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model - Classifier": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Text Classifier",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label: Support": {
+      "main": [
+        [
+          {
+            "node": "Call Support Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label: Finance": {
+      "main": [
+        [
+          {
+            "node": "Forward to Billing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label: Priority": {
+      "main": [
+        [
+          {
+            "node": "Call Mr. Doomsday Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label: Promotion": {
+      "main": [
+        [
+          {
+            "node": "Mark as Read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label: Family": {
+      "main": [
+        [
+          {
+            "node": "Call Family Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label: Uncategorized": {
+      "main": [
+        [
+          {
+            "node": "Call Uncategorized Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label: LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "Call LinkedIn Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Category": {
+      "main": [
+        [
+          {
+            "node": "Label: Support",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: Finance",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: Priority",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: Promotion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: Family",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: Uncategorized",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Label: LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-11-10T00:00:00.000Z",
+  "versionId": "optimized-v2"
+}
