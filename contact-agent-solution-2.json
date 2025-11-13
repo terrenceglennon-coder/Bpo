@@ -1,0 +1,72 @@
+{
+  "description": "Solution 2: Update Contact Agent system message to output structured JSON and use simplified tools",
+  "updatedSystemMessage": "# Overview\nYou are a contact management assistant. Your responsibilities include looking up contacts, adding new contacts, or updating a contact's information.\n\n**Contact Management Tools**\n- Use \"Get Contacts\" to search for existing contacts by email, name, or other criteria\n- Use \"Create Contact\" to create brand new contacts that don't exist yet\n- Use \"Update Contact\" to update existing contact information\n- Use \"Delete Contact\" to delete contacts\n\n**CRITICAL: When creating or updating contacts, you MUST output contact data in this exact JSON format:**\n\n```json\n{\n  \"Full Name\": \"John Doe\",\n  \"Email Address\": \"john@example.com\",\n  \"Phone Number\": \"+1-555-0123\",\n  \"Company Name\": \"Acme Corp\",\n  \"Address\": \"123 Main St, City, State 12345\",\n  \"Client Summary (AI)\": \"Brief summary here\",\n  \"Client Type (AI)\": \"Lead\"\n}\n```\n\n**Rules:**\n1. Full Name and Email Address are REQUIRED - never proceed without them\n2. All other fields are optional - use empty string \"\" if not provided\n3. Output ONLY valid JSON - no markdown, no explanations, no extra text\n4. Use exact key names as shown above\n5. Always validate email format before proceeding\n\n**When creating new contacts:**\n1. Ask user for Full Name and Email Address (minimum required)\n2. Ask if they want to provide optional fields\n3. Output the structured JSON\n4. Confirm creation success to user\n\n**Current date/time:** {{ $now }}",
+
+  "replacementWorkflow": {
+    "description": "Replace the 'Create a New' Airtable Tool with this simplified workflow node",
+    "workflowTool": {
+      "parameters": {
+        "description": "Call this tool to create a new contact. Send ONLY the contact data as a JSON object with these fields: Full Name (required), Email Address (required), Phone Number, Company Name, Address, Client Summary (AI), Client Type (AI)",
+        "workflowId": {
+          "__rl": true,
+          "value": "CREATE_CONTACT_WORKFLOW_ID",
+          "mode": "list"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "contactData": "={{ $json }}"
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "name": "Create Contact Tool"
+    }
+  },
+
+  "subWorkflow": {
+    "description": "Create this as a separate workflow to handle contact creation",
+    "nodes": [
+      {
+        "name": "Workflow Trigger",
+        "type": "n8n-nodes-base.workflow",
+        "parameters": {}
+      },
+      {
+        "name": "Parse Contact Data",
+        "type": "n8n-nodes-base.code",
+        "parameters": {
+          "jsCode": "const contactData = $input.item.json.contactData;\n\n// Parse if string, otherwise use as-is\nconst data = typeof contactData === 'string' ? JSON.parse(contactData) : contactData;\n\n// Validate required fields\nif (!data['Full Name'] || !data['Email Address']) {\n  throw new Error('Full Name and Email Address are required');\n}\n\n// Validate email\nconst emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nif (!emailRegex.test(data['Email Address'])) {\n  throw new Error('Invalid email format');\n}\n\nreturn { json: data };"
+        }
+      },
+      {
+        "name": "Create in Airtable",
+        "type": "n8n-nodes-base.airtable",
+        "parameters": {
+          "operation": "create",
+          "base": {"__rl": true, "value": "appCRmoSqgAx8xPr9", "mode": "list"},
+          "table": {"__rl": true, "value": "tblVusedLZe5RGuEz", "mode": "list"},
+          "columns": {
+            "mappingMode": "autoMapInputData"
+          }
+        }
+      },
+      {
+        "name": "Return Success",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ { \"success\": true, \"message\": \"Contact created successfully\", \"id\": $json.id, \"name\": $json.fields['Full Name'] } }}"
+        }
+      }
+    ]
+  },
+
+  "instructions": [
+    "1. Update the Contact Agent's system message with the new message above",
+    "2. Create the sub-workflow for contact creation as shown",
+    "3. Replace the 'Create a New' Airtable Tool node with the 'Create Contact Tool' workflow tool",
+    "4. Connect it to the Contact Agent",
+    "5. Test by asking to create a contact"
+  ]
+}

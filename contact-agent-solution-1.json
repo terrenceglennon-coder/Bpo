@@ -1,0 +1,49 @@
+{
+  "description": "Solution 1: Add a Code node before 'Create a New' to extract and validate contact data",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Extract contact data from AI agent output\nconst input = $input.item.json;\n\n// Function to safely extract field\nfunction extractField(data, possibleKeys) {\n  for (const key of possibleKeys) {\n    if (data[key] && typeof data[key] === 'string' && data[key].trim()) {\n      return data[key].trim();\n    }\n  }\n  return '';\n}\n\n// Extract Full Name\nconst fullName = extractField(input, ['Full_Name', 'Full Name', 'fullName', 'name', 'Full_Name_']);\n\n// Extract Email\nconst email = extractField(input, ['Email_Address', 'Email Address', 'email', 'Email_Address_']);\n\n// Validation\nif (!fullName || !email) {\n  throw new Error(`Missing required fields: ${!fullName ? 'Full Name' : ''} ${!email ? 'Email' : ''}`);\n}\n\n// Validate email format\nconst emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nif (!emailRegex.test(email)) {\n  throw new Error('Invalid email format: ' + email);\n}\n\n// Return structured data for Airtable\nreturn {\n  json: {\n    'Full Name': fullName,\n    'Email Address': email.toLowerCase(),\n    'Phone Number': extractField(input, ['Phone_Number', 'Phone Number', 'phone', 'Phone_Number_']),\n    'Company Name': extractField(input, ['Company_Name', 'Company Name', 'company', 'Company_Name_']),\n    'Address': extractField(input, ['Address', 'address']),\n    'Client Summary (AI)': extractField(input, ['Client_Summary__AI_', 'Client Summary (AI)', 'summary', 'clientSummary']),\n    'Client Type (AI)': extractField(input, ['Client_Type', 'Client Type (AI)', 'clientType', 'type'])\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "name": "Extract Contact Data",
+      "position": [1440, 1200]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appCRmoSqgAx8xPr9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblVusedLZe5RGuEz",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "schema": [
+            {"id": "Full Name", "displayName": "Full Name", "type": "string"},
+            {"id": "Email Address", "displayName": "Email Address", "type": "string"},
+            {"id": "Phone Number", "displayName": "Phone Number", "type": "string"},
+            {"id": "Company Name", "displayName": "Company Name", "type": "string"},
+            {"id": "Address", "displayName": "Address", "type": "string"},
+            {"id": "Client Summary (AI)", "displayName": "Client Summary (AI)", "type": "string"},
+            {"id": "Client Type (AI)", "displayName": "Client Type (AI)", "type": "string"}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.airtable",
+      "name": "Create Contact - Fixed",
+      "position": [1600, 1200]
+    }
+  ],
+  "instructions": [
+    "1. Add the 'Extract Contact Data' code node BEFORE 'Create a New'",
+    "2. Connect it to receive output from wherever the AI provides contact data",
+    "3. Replace 'Create a New' with 'Create Contact - Fixed' that uses autoMapInputData instead of $fromAI()",
+    "4. The code node handles all data extraction and validation"
+  ]
+}

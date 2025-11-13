@@ -1,0 +1,98 @@
+{
+  "description": "Solution 3: Replace Airtable Tool nodes with HTTP Request nodes for complete control over data structure",
+
+  "nodes": [
+    {
+      "name": "Prepare Contact Data",
+      "type": "n8n-nodes-base.code",
+      "parameters": {
+        "jsCode": "// Get input from AI agent\nconst input = $input.item.json;\n\n// Helper to extract data from various possible formats\nfunction extract(obj, keys) {\n  for (const key of keys) {\n    if (obj[key]) {\n      const val = obj[key];\n      // Handle if value is an object with 'value' property\n      if (typeof val === 'object' && val.value) return String(val.value).trim();\n      // Handle direct string\n      if (typeof val === 'string') return val.trim();\n    }\n  }\n  return '';\n}\n\n// Extract all fields\nconst fullName = extract(input, ['Full_Name', 'Full Name', 'fullName', 'name']);\nconst email = extract(input, ['Email_Address', 'Email Address', 'email']);\nconst phone = extract(input, ['Phone_Number', 'Phone Number', 'phone']);\nconst company = extract(input, ['Company_Name', 'Company Name', 'company']);\nconst address = extract(input, ['Address', 'address']);\nconst summary = extract(input, ['Client_Summary__AI_', 'Client Summary (AI)', 'summary']);\nconst clientType = extract(input, ['Client_Type', 'Client Type (AI)', 'clientType']);\n\n// Validation\nif (!fullName) {\n  return { json: { error: 'Full Name is required', success: false } };\n}\nif (!email) {\n  return { json: { error: 'Email Address is required', success: false } };\n}\n\n// Validate email format\nconst emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nif (!emailRegex.test(email)) {\n  return { json: { error: `Invalid email format: ${email}`, success: false } };\n}\n\n// Prepare Airtable API payload\nreturn {\n  json: {\n    fields: {\n      'Full Name': fullName,\n      'Email Address': email.toLowerCase(),\n      'Phone Number': phone,\n      'Company Name': company,\n      'Address': address,\n      'Client Summary (AI)': summary,\n      'Client Type (AI)': clientType\n    }\n  }\n};"
+      },
+      "position": [1440, 1200]
+    },
+    {
+      "name": "Check for Errors",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": {
+          "boolean": [\n            {\n              "value1": "={{ $json.error }}",
+              "operation": "exists"\n            }\n          ]\n        }\n      },
+      "position": [1580, 1200]
+    },
+    {
+      "name": "Create Contact via API",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.airtable.com/v0/appCRmoSqgAx8xPr9/tblVusedLZe5RGuEz",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [\n            {\n              "name": "fields",
+              "value": "={{ JSON.stringify($json.fields) }}"\n            }\n          ]\n        },
+        "options": {
+          "response": {
+            "response": {\n              "fullResponse": false,
+              "responseFormat": "json"\n            }\n          }\n        }\n      },
+      "position": [1720, 1150]
+    },
+    {
+      "name": "Return Error",
+      "type": "n8n-nodes-base.noOp",
+      "parameters": {},
+      "position": [1720, 1250],
+      "notes": "This would return the error message to the agent"
+    },
+    {
+      "name": "Search Contacts via API",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.airtable.com/v0/appCRmoSqgAx8xPr9/tblVusedLZe5RGuEz",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [\n            {\n              "name": "filterByFormula",
+              "value": "={{ $fromAI('Filter_By_Formula', 'Airtable formula to filter contacts', 'string') }}"\n            },
+            {\n              "name": "maxRecords",
+              "value": "10"\n            }\n          ]\n        }\n      },
+      "position": [1440, 1300],
+      "notes": "Replace 'Get Contacts2' with this"
+    },
+    {
+      "name": "Update Contact via API",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.airtable.com/v0/appCRmoSqgAx8xPr9/tblVusedLZe5RGuEz/{{ $fromAI('Record_ID', 'The ID of the record to update', 'string') }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"fields\": {\n    \"Full Name\": \"{{ $fromAI('Full_Name', 'Full name', 'string') }}\",\n    \"Email Address\": \"{{ $fromAI('Email_Address', 'Email', 'string') }}\",\n    \"Phone Number\": \"{{ $fromAI('Phone_Number', 'Phone', 'string') }}\",\n    \"Company Name\": \"{{ $fromAI('Company_Name', 'Company', 'string') }}\",\n    \"Address\": \"{{ $fromAI('Address', 'Address', 'string') }}\"\n  }\n}"\n      },
+      "position": [1440, 1350],
+      "notes": "Replace 'Add or Update' with this for updates"
+    }
+  ],
+
+  "improvedAgentPrompt": "# Overview\nYou are a contact management assistant. Your responsibilities include looking up contacts, adding new contacts, or updating a contact's information.\n\n**Contact Management Tools**\n- Use \"Get Contacts\" to search for existing contacts\n- Use \"Create Contact\" to create new contacts - requires Full Name and Email Address at minimum\n- Use \"Update Contact\" to modify existing contact data - requires Record ID from a prior search\n- Use \"Delete Contact\" to remove contacts - requires Record ID\n\n**IMPORTANT DATA FORMAT RULES:**\n\nWhen creating a contact, extract and provide:\n- Full_Name: The person's complete name (REQUIRED)\n- Email_Address: Valid email address (REQUIRED)\n- Phone_Number: Contact phone (optional)\n- Company_Name: Company name (optional)\n- Address: Full address (optional)\n- Client_Summary__AI_: Brief summary (optional)\n- Client_Type: Type of client (optional)\n\nFor searching contacts:\n- Use Airtable formula syntax: FIND(\"searchterm\", {Email Address})\n- Example: FIND(\"john\", {Full Name}) to find contacts with 'john' in name\n- Example: {Email Address}='john@example.com' to find exact email match\n\n**Workflow:**\n1. For new contacts: Ask for Full Name + Email, then optional fields, then create\n2. For updates: Search first to get Record ID, then update\n3. For deletes: Search first to get Record ID, then delete\n4. Always confirm actions with user\n\n**Current date/time:** {{ $now }}",
+
+  "instructions": [
+    "1. Replace 'Create a New' with the 'Prepare Contact Data' + 'Check for Errors' + 'Create Contact via API' flow",
+    "2. Replace 'Get Contacts2' with 'Search Contacts via API'",
+    "3. Replace 'Add or Update' with 'Update Contact via API'",
+    "4. Update the Contact Agent's system message with the improved prompt",
+    "5. Keep your existing Airtable credentials - the HTTP nodes will use them",
+    "6. This gives you complete control over data structure and better error handling"
+  ],
+
+  "benefits": [
+    "✓ Direct API calls give full control over data structure",
+    "✓ Better error handling with validation before API calls",
+    "✓ No dependency on unreliable $fromAI() auto-mapping",
+    "✓ Can see exact data being sent in execution logs",
+    "✓ Easier to debug when things go wrong"
+  ]
+}
