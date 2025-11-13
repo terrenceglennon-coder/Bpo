@@ -1,7 +1,7 @@
 import React, { Component } from 'react';
 import { Container } from 'reactstrap';
 //import axios from 'axios';
-import { getGPT3ParseExtractInfo, getGPT3CustomPromptCompletion, getGPT3Summarize, getKeyPhrases, getTokenOrRefresh } from './token_util.js';
+import { getGPT3ParseExtractInfo, getGPT3CustomPromptCompletion, getGPT3Summarize, getKeyPhrases, getTokenOrRefresh, getGPT3DiarizationPromptCompletion } from './token_util.js';
 import { ResultReason } from 'microsoft-cognitiveservices-speech-sdk';
 import './App.css';
 //import { Input } from '@material-ui/core';
@@ -42,6 +42,7 @@ var recognizer;
             timestamps: [],
             currentTime: 0,
             objectURL: "",
+            displayStyle: "list",
           };
       
         }
@@ -258,7 +259,7 @@ var recognizer;
           console.log("index of sentence clicked:", key);
           var clickedTimestamp = this.state.timestamps;
           console.log(clickedTimestamp[key]);
-      
+
           this.setState({ currentTime: clickedTimestamp[key] }, () => {
             this.audioRef.current.currentTime = clickedTimestamp[key];
             if (!this.audioRef.current.paused) {
@@ -266,6 +267,10 @@ var recognizer;
             }
           });
         };
+
+    handleDisplayStyleChange = (event) => {
+      this.setState({ displayStyle: event.target.value });
+    };
   
     handleToggle = () => {
       this.setState(prevState => ({
@@ -395,6 +400,36 @@ var recognizer;
       this.setState({ gptPrompt2: gptObj.data });
       }
     }
+
+    renderMindMap = (text) => {
+      if (!text || text === '') return null;
+
+      // Parse the text into topics
+      const lines = text.split('\n').filter(line => line.trim() !== '');
+      const topics = lines.map((line, index) => {
+        // Remove numbering, bullets, or dashes at the start
+        const cleanedLine = line.replace(/^[\d\.\-\*\s]+/, '').trim();
+        return cleanedLine;
+      }).filter(topic => topic !== '');
+
+      return (
+        <div className="mindmap-container">
+          <div className="mindmap-center-node">
+            Call Center Topics
+          </div>
+          <div className="mindmap-branches">
+            {topics.map((topic, index) => (
+              <div key={index} className="mindmap-branch">
+                <div className="mindmap-connector"></div>
+                <div className="mindmap-node">
+                  {topic}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    };
   
 
     async gptCustomPromptCompetion(inputText){
@@ -611,8 +646,30 @@ var recognizer;
                 </div>
 
                 <div className="col-6 nlpoutput-display rounded" id="infotextarea" style={{ height: 300, width: '100%', position: 'relative'}}>
-                  <button type="button" class="button" style={{ position: 'absolute', top: 0, right: 0}} onClick={() => this.gptKeyTopics(this.state.displayText)}>Extract Key Topics</button>
-                  <code style={{ "color": "black" }}>{this.state.gptPrompt2}</code>
+                  <button type="button" class="button" style={{ position: 'absolute', top: 0, right: 160}} onClick={() => this.gptKeyTopics(this.state.displayText)}>Extract Key Topics</button>
+                  <select
+                    value={this.state.displayStyle}
+                    onChange={this.handleDisplayStyleChange}
+                    style={{
+                      position: 'absolute',
+                      top: 5,
+                      right: 5,
+                      padding: '3px 8px',
+                      borderRadius: '3px',
+                      border: '1px solid #ccc',
+                      backgroundColor: 'white',
+                      cursor: 'pointer',
+                      fontSize: '14px'
+                    }}
+                  >
+                    <option value="list">List View</option>
+                    <option value="mindmap">Mind Map</option>
+                  </select>
+                  {this.state.displayStyle === 'list' ? (
+                    <code style={{ "color": "black" }}>{this.state.gptPrompt2}</code>
+                  ) : (
+                    this.renderMindMap(this.state.gptPrompt2)
+                  )}
                 </div>
               </div>
             
