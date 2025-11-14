@@ -1,0 +1,307 @@
+{
+  "name": "Solution 2: Hybrid Approach with Code Nodes (RECOMMENDED)",
+  "description": "Use Code nodes for data extraction/validation + Google Sheets API for storage. Fixes $fromAI() issues and provides maximum control.",
+  "difficulty": "Medium",
+  "setup_time": "60-90 minutes",
+  "maintenance": "Medium",
+  "recommended": true,
+
+  "prerequisites": {
+    "googleSheet": {
+      "name": "Client Contacts",
+      "url": "CREATE_NEW_SHEET",
+      "structure": {
+        "columns": [
+          "Email Address",
+          "Full Name",
+          "Phone Number",
+          "Company Name",
+          "Address",
+          "Date Added",
+          "Client Summary (AI)",
+          "Client Type (AI)",
+          "Account",
+          "Photo URL",
+          "Last Updated"
+        ],
+        "headerRow": 1,
+        "dataStartsRow": 2,
+        "keyColumn": "A (Email Address - unique identifier)"
+      }
+    }
+  },
+
+  "workflow": {
+    "description": "Complete workflow with validation and error handling",
+    "nodes": [
+      {
+        "name": "Extract Contact Data",
+        "type": "n8n-nodes-base.code",
+        "description": "Extracts and validates contact data from AI agent (fixes $fromAI() issues)",
+        "parameters": {
+          "jsCode": "// Extract contact data from AI agent output\nconst input = $input.item.json;\n\n// Helper function to safely extract field from various formats\nfunction extractField(data, possibleKeys, defaultValue = '') {\n  for (const key of possibleKeys) {\n    if (data[key] !== undefined && data[key] !== null) {\n      const val = data[key];\n      // Handle object with value property\n      if (typeof val === 'object' && val.value) {\n        return String(val.value).trim();\n      }\n      // Handle direct value\n      if (typeof val === 'string' && val.trim()) {\n        return val.trim();\n      }\n      if (typeof val === 'number') {\n        return String(val);\n      }\n    }\n  }\n  return defaultValue;\n}\n\n// Extract all contact fields\nconst fullName = extractField(input, ['Full_Name', 'Full Name', 'fullName', 'name', 'Name']);\nconst email = extractField(input, ['Email_Address', 'Email Address', 'email', 'Email']);\nconst phone = extractField(input, ['Phone_Number', 'Phone Number', 'phone', 'Phone']);\nconst company = extractField(input, ['Company_Name', 'Company Name', 'company', 'Company']);\nconst address = extractField(input, ['Address', 'address']);\nconst summary = extractField(input, ['Client_Summary__AI_', 'Client Summary (AI)', 'Client Summary', 'summary', 'Summary']);\nconst clientType = extractField(input, ['Client_Type', 'Client Type (AI)', 'Client Type', 'clientType', 'type', 'Type']);\nconst account = extractField(input, ['Account', 'account']);\n\n// Validation\nconst errors = [];\n\nif (!fullName) {\n  errors.push('Full Name is required');\n}\n\nif (!email) {\n  errors.push('Email Address is required');\n} else {\n  // Validate email format\n  const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\n  if (!emailRegex.test(email)) {\n    errors.push(`Invalid email format: ${email}`);\n  }\n}\n\n// If there are validation errors, return error object\nif (errors.length > 0) {\n  return {\n    json: {\n      success: false,\n      error: errors.join(', '),\n      message: `Validation failed: ${errors.join(', ')}`\n    }\n  };\n}\n\n// Return clean, validated contact data\nreturn {\n  json: {\n    success: true,\n    'Email Address': email.toLowerCase(),\n    'Full Name': fullName,\n    'Phone Number': phone,\n    'Company Name': company,\n    'Address': address,\n    'Date Added': new Date().toISOString(),\n    'Client Summary (AI)': summary,\n    'Client Type (AI)': clientType,\n    'Account': account,\n    'Photo URL': '',\n    'Last Updated': new Date().toISOString()\n  }\n};"
+        },
+        "position": [1350, 1200]
+      },
+
+      {
+        "name": "Check Validation",
+        "type": "n8n-nodes-base.if",
+        "description": "Routes to error handler if validation failed",
+        "parameters": {
+          "conditions": {
+            "boolean": [
+              {
+                "value1": "={{ $json.success }}",
+                "value2": true,
+                "operation": "equal"
+              }
+            ]
+          }
+        },
+        "position": [1480, 1200]
+      },
+
+      {
+        "name": "Search Contact by Email",
+        "type": "n8n-nodes-base.code",
+        "description": "Searches Google Sheets for existing contact by email",
+        "parameters": {
+          "jsCode": "// This node receives all sheet data and searches for matching email\nconst searchEmail = $input.first().json['Email Address'];\nconst allRows = $input.all();\n\n// Find matching contact\nconst matchedRow = allRows.find(row => {\n  const rowEmail = row.json['Email Address'];\n  return rowEmail && rowEmail.toLowerCase() === searchEmail.toLowerCase();\n});\n\nif (matchedRow) {\n  // Contact exists - prepare for update\n  return {\n    json: {\n      exists: true,\n      rowNumber: matchedRow.json.row_number || matchedRow.json.__row_number,\n      email: searchEmail,\n      action: 'update',\n      ...matchedRow.json\n    }\n  };\n} else {\n  // Contact doesn't exist - prepare for create\n  return {\n    json: {\n      exists: false,\n      email: searchEmail,\n      action: 'create'\n    }\n  };\n}"
+        },
+        "position": [1610, 1150],
+        "notes": "Determines if contact exists for upsert logic"
+      },
+
+      {
+        "name": "Create Contact in Sheets",
+        "type": "n8n-nodes-base.googleSheets",
+        "description": "Appends new contact to Google Sheets",
+        "parameters": {
+          "operation": "append",
+          "documentId": {
+            "__rl": true,
+            "value": "GOOGLE_SHEET_ID",
+            "mode": "id"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "Contacts",
+            "mode": "list"
+          },
+          "columns": {
+            "mappingMode": "autoMapInputData",
+            "schema": [
+              {"id": "Email Address", "displayName": "Email Address"},
+              {"id": "Full Name", "displayName": "Full Name"},
+              {"id": "Phone Number", "displayName": "Phone Number"},
+              {"id": "Company Name", "displayName": "Company Name"},
+              {"id": "Address", "displayName": "Address"},
+              {"id": "Date Added", "displayName": "Date Added"},
+              {"id": "Client Summary (AI)", "displayName": "Client Summary (AI)"},
+              {"id": "Client Type (AI)", "displayName": "Client Type (AI)"},
+              {"id": "Account", "displayName": "Account"},
+              {"id": "Photo URL", "displayName": "Photo URL"},
+              {"id": "Last Updated", "displayName": "Last Updated"}
+            ]
+          }
+        },
+        "position": [1740, 1100]
+      },
+
+      {
+        "name": "Update Contact in Sheets",
+        "type": "n8n-nodes-base.googleSheets",
+        "description": "Updates existing contact in Google Sheets",
+        "parameters": {
+          "operation": "update",
+          "documentId": {
+            "__rl": true,
+            "value": "GOOGLE_SHEET_ID",
+            "mode": "id"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "Contacts",
+            "mode": "list"
+          },
+          "columns": {
+            "mappingMode": "autoMapInputData"
+          },
+          "options": {
+            "dataLocationOnSheet": "={{ $json.rowNumber }}"
+          }
+        },
+        "position": [1740, 1200]
+      },
+
+      {
+        "name": "Get All Contacts",
+        "type": "n8n-nodes-base.googleSheets",
+        "description": "Reads all contacts for searching",
+        "parameters": {
+          "operation": "read",
+          "documentId": {
+            "__rl": true,
+            "value": "GOOGLE_SHEET_ID",
+            "mode": "id"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "Contacts",
+            "mode": "list"
+          },
+          "options": {
+            "range": "A2:K1000"
+          }
+        },
+        "position": [1296, 1300]
+      },
+
+      {
+        "name": "Filter Contacts",
+        "type": "n8n-nodes-base.code",
+        "description": "Filters contacts based on search criteria",
+        "parameters": {
+          "jsCode": "// Get search criteria (from AI or direct input)\nconst criteria = $input.first().json;\nconst searchEmail = criteria.searchEmail || criteria.email || '';\nconst searchName = criteria.searchName || criteria.name || '';\nconst searchCompany = criteria.searchCompany || criteria.company || '';\n\n// Get all contacts from previous node\nconst allContacts = $input.all().slice(1); // Skip first item (criteria)\n\nif (!searchEmail && !searchName && !searchCompany) {\n  // No filters - return all\n  return allContacts;\n}\n\n// Filter contacts\nconst results = allContacts.filter(contact => {\n  const data = contact.json;\n  let match = false;\n  \n  // Email search (partial match, case insensitive)\n  if (searchEmail && data['Email Address']) {\n    if (data['Email Address'].toLowerCase().includes(searchEmail.toLowerCase())) {\n      match = true;\n    }\n  }\n  \n  // Name search (partial match, case insensitive)\n  if (searchName && data['Full Name']) {\n    if (data['Full Name'].toLowerCase().includes(searchName.toLowerCase())) {\n      match = true;\n    }\n  }\n  \n  // Company search (partial match, case insensitive)\n  if (searchCompany && data['Company Name']) {\n    if (data['Company Name'].toLowerCase().includes(searchCompany.toLowerCase())) {\n      match = true;\n    }\n  }\n  \n  return match;\n});\n\nreturn results;"
+        },
+        "position": [1430, 1300]
+      },
+
+      {
+        "name": "Delete Contact",
+        "type": "n8n-nodes-base.googleSheets",
+        "description": "Deletes contact by row number",
+        "parameters": {
+          "operation": "delete",
+          "documentId": {
+            "__rl": true,
+            "value": "GOOGLE_SHEET_ID",
+            "mode": "id"
+          },
+          "sheetName": {
+            "__rl": true,
+            "value": "Contacts",
+            "mode": "list"
+          },
+          "startIndex": "={{ $json.rowNumber }}",
+          "numberToDelete": 1
+        },
+        "position": [1560, 1350]
+      },
+
+      {
+        "name": "Format Success Response",
+        "type": "n8n-nodes-base.code",
+        "description": "Formats response for AI agent",
+        "parameters": {
+          "jsCode": "const data = $input.item.json;\nconst action = data.action || 'unknown';\n\nreturn {\n  json: {\n    success: true,\n    action: action,\n    message: `Contact ${action === 'create' ? 'created' : 'updated'} successfully`,\n    contact: {\n      email: data['Email Address'],\n      name: data['Full Name'],\n      company: data['Company Name'] || 'N/A'\n    }\n  }\n};"
+        },
+        "position": [1870, 1150]
+      },
+
+      {
+        "name": "Return Error",
+        "type": "n8n-nodes-base.code",
+        "description": "Returns error message to AI agent",
+        "parameters": {
+          "jsCode": "const error = $input.item.json.error || 'Unknown error occurred';\n\nreturn {\n  json: {\n    success: false,\n    error: error,\n    message: `Failed to process contact: ${error}`\n  }\n};"
+        },
+        "position": [1610, 1250]
+      }
+    ]
+  },
+
+  "agentTools": [
+    {
+      "name": "Get Contacts Tool",
+      "description": "Use this to search for contacts. Provide searchEmail, searchName, or searchCompany",
+      "workflow": "Main workflow → Get All Contacts → Filter Contacts"
+    },
+    {
+      "name": "Create/Update Contact Tool",
+      "description": "Use this to create new contact or update existing. Provide Full_Name and Email_Address (required), plus optional fields",
+      "workflow": "Main workflow → Extract Contact Data → Check Validation → Search Contact → Create OR Update → Format Response"
+    },
+    {
+      "name": "Delete Contact Tool",
+      "description": "Use this to delete a contact. Must provide rowNumber from search results",
+      "workflow": "Main workflow → Delete Contact"
+    }
+  ],
+
+  "updatedAgentPrompt": "# Overview\nYou are a contact management assistant using Google Sheets as the backend.\n\n**Contact Management Tools**\n- Use \"Get Contacts\" to search for contacts by email, name, or company name\n- Use \"Create/Update Contact\" to add new contacts or update existing ones\n  - Email Address is used as unique identifier\n  - If email exists, it updates. If not, it creates new.\n- Use \"Delete Contact\" to remove contacts\n  - MUST search first to get the row number\n  - Then delete using that row number\n\n**When creating/updating contacts:**\n1. REQUIRED fields:\n   - Full_Name: Complete name of the person\n   - Email_Address: Valid email address (used as unique ID)\n\n2. OPTIONAL fields:\n   - Phone_Number: Contact phone\n   - Company_Name: Company name\n   - Address: Full address\n   - Client_Summary__AI_: Brief summary about the client\n   - Client_Type: Type of client (Lead, Customer, Partner, etc.)\n   - Account: Account information\n\n3. AUTO-POPULATED fields:\n   - Date Added: Automatically set on creation\n   - Last Updated: Automatically set on every update\n\n**Data Format:**\nProvide data as simple key-value pairs:\n```\nFull_Name: \"John Doe\"\nEmail_Address: \"john@example.com\"\nPhone_Number: \"+1-555-0123\"\nCompany_Name: \"Acme Corp\"\n```\n\n**Search examples:**\n- Search by email: {\"searchEmail\": \"john@example.com\"}\n- Search by name: {\"searchName\": \"John\"}\n- Search by company: {\"searchCompany\": \"Acme\"}\n- Get all contacts: {} (empty object)\n\n**Delete workflow:**\n1. Search for contact first: Get Contacts with search criteria\n2. Note the row number from results\n3. Delete using: {\"rowNumber\": X}\n\n**Current date/time:** {{ $now }}",
+
+  "implementation": {
+    "steps": [
+      "1. Create Google Sheet 'Client Contacts' with specified column structure",
+      "2. Add all Code nodes as specified above",
+      "3. Add Google Sheets nodes (read, append, update, delete)",
+      "4. Connect nodes in the workflow sequence",
+      "5. Replace GOOGLE_SHEET_ID with your actual sheet ID",
+      "6. Create 3 Tool Workflow nodes that wrap the main workflows:",
+      "   - Get Contacts Tool → wraps Get All Contacts + Filter",
+      "   - Create/Update Tool → wraps Extract + Validate + Upsert logic",
+      "   - Delete Tool → wraps Delete Contact",
+      "7. Connect all 3 tools to Contact Agent",
+      "8. Update Contact Agent system message",
+      "9. Test all CRUD operations",
+      "10. Monitor logs for any issues"
+    ]
+  },
+
+  "advantages": [
+    "✅ Fixes $fromAI() extraction issues completely",
+    "✅ Robust data validation before saving",
+    "✅ Proper error handling and messages",
+    "✅ Automatic upsert logic (create or update)",
+    "✅ Email used as unique identifier (more reliable than row numbers)",
+    "✅ Clean data extraction from various AI output formats",
+    "✅ Easy to debug (can add console.log in Code nodes)",
+    "✅ Flexible - easy to add new fields or logic",
+    "✅ Better performance (targeted searches)",
+    "✅ Last Updated tracking"
+  ],
+
+  "disadvantages": [
+    "❌ More complex setup than Solution 1",
+    "❌ Requires JavaScript knowledge for modifications",
+    "❌ More nodes = more maintenance",
+    "❌ Delete still requires two-step process",
+    "❌ Need to wrap workflows in Tool Workflow nodes for agent"
+  ],
+
+  "bestFor": [
+    "✨ RECOMMENDED for production use",
+    "When you need reliable contact creation (fixes $fromAI() issues)",
+    "When data validation is important",
+    "When you want proper error handling",
+    "Teams comfortable with JavaScript/Code nodes",
+    "When you need flexibility for future changes"
+  ],
+
+  "migrationFromAirtable": {
+    "exportSteps": [
+      "1. In Airtable, go to Client Contacts base",
+      "2. Click Grid view → Download CSV",
+      "3. Open CSV in Google Sheets",
+      "4. Adjust columns to match new structure",
+      "5. Copy data to new Contact sheet",
+      "6. Verify all contacts transferred correctly"
+    ],
+    "dataMapping": {
+      "Airtable": "Google Sheets",
+      "Full Name": "Full Name (B)",
+      "Email Address": "Email Address (A) - Primary Key",
+      "Phone Number": "Phone Number (C)",
+      "Company Name": "Company Name (D)",
+      "Address": "Address (E)",
+      "Date Added": "Date Added (F)",
+      "Client Summary (AI)": "Client Summary (AI) (G)",
+      "Client Type (AI)": "Client Type (AI) (H)",
+      "Account": "Account (I)",
+      "Photo": "Photo URL (J) - Convert to Drive link",
+      "recordId": "Not needed - Email is unique ID"
+    }
+  }
+}

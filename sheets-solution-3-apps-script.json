@@ -1,0 +1,283 @@
+{
+  "name": "Solution 3: Google Apps Script API Approach (Advanced)",
+  "description": "Create custom Google Apps Script functions for contact management, exposed as web service endpoints. Maximum performance and features.",
+  "difficulty": "Advanced",
+  "setup_time": "90-120 minutes",
+  "maintenance": "Medium-High",
+  "forAdvancedUsers": true,
+
+  "prerequisites": {
+    "googleSheet": {
+      "name": "Client Contacts",
+      "url": "CREATE_NEW_SHEET",
+      "structure": {
+        "columns": [
+          "Contact ID",
+          "Email Address",
+          "Full Name",
+          "Phone Number",
+          "Company Name",
+          "Address",
+          "Date Added",
+          "Date Modified",
+          "Client Summary (AI)",
+          "Client Type (AI)",
+          "Account",
+          "Photo URL",
+          "Status"
+        ],
+        "headerRow": 1,
+        "dataStartsRow": 2,
+        "namedRanges": {
+          "ContactData": "A2:M1000",
+          "ContactHeaders": "A1:M1"
+        }
+      }
+    },
+    "appsScript": {
+      "description": "Google Apps Script project attached to the sheet",
+      "deployment": "Web app with anonymous access or API key authentication"
+    }
+  },
+
+  "appsScriptCode": {
+    "Code.gs": "/**\n * Contact Management System\n * Google Apps Script API for n8n Integration\n */\n\nconst SHEET_NAME = 'Contacts';\nconst SS = SpreadsheetApp.getActiveSpreadsheet();\n\n/**\n * Generate unique contact ID\n */\nfunction generateContactId() {\n  return 'CNT-' + Utilities.getUuid().substring(0, 8).toUpperCase();\n}\n\n/**\n * Main entry point for web requests\n */\nfunction doPost(e) {\n  try {\n    const params = JSON.parse(e.postData.contents);\n    const action = params.action;\n    \n    switch(action) {\n      case 'create':\n        return createContact(params.data);\n      case 'update':\n        return updateContact(params.email, params.data);\n      case 'upsert':\n        return upsertContact(params.data);\n      case 'search':\n        return searchContacts(params.criteria);\n      case 'delete':\n        return deleteContact(params.email);\n      case 'get':\n        return getContact(params.email);\n      case 'list':\n        return listAllContacts(params.limit || 100);\n      default:\n        return errorResponse('Unknown action: ' + action);\n    }\n  } catch(error) {\n    return errorResponse(error.toString());\n  }\n}\n\n/**\n * Create new contact\n */\nfunction createContact(data) {\n  const sheet = SS.getSheetByName(SHEET_NAME);\n  \n  // Validate required fields\n  if (!data.email) {\n    return errorResponse('Email is required');\n  }\n  if (!data.fullName) {\n    return errorResponse('Full Name is required');\n  }\n  \n  // Check if contact already exists\n  const existing = findContactByEmail(data.email);\n  if (existing) {\n    return errorResponse('Contact already exists with this email');\n  }\n  \n  // Prepare row data\n  const now = new Date().toISOString();\n  const contactId = generateContactId();\n  \n  const row = [\n    contactId,\n    data.email.toLowerCase(),\n    data.fullName || '',\n    data.phone || '',\n    data.company || '',\n    data.address || '',\n    now,\n    now,\n    data.clientSummary || '',\n    data.clientType || '',\n    data.account || '',\n    data.photoUrl || '',\n    'Active'\n  ];\n  \n  // Append to sheet\n  sheet.appendRow(row);\n  \n  return successResponse({\n    action: 'create',\n    contactId: contactId,\n    email: data.email,\n    message: 'Contact created successfully'\n  });\n}\n\n/**\n * Update existing contact\n */\nfunction updateContact(email, data) {\n  const contact = findContactByEmail(email);\n  \n  if (!contact) {\n    return errorResponse('Contact not found with email: ' + email);\n  }\n  \n  const sheet = SS.getSheetByName(SHEET_NAME);\n  const row = contact.row;\n  const now = new Date().toISOString();\n  \n  // Update fields (keep existing if not provided)\n  if (data.fullName !== undefined) sheet.getRange(row, 3).setValue(data.fullName);\n  if (data.phone !== undefined) sheet.getRange(row, 4).setValue(data.phone);\n  if (data.company !== undefined) sheet.getRange(row, 5).setValue(data.company);\n  if (data.address !== undefined) sheet.getRange(row, 6).setValue(data.address);\n  sheet.getRange(row, 8).setValue(now); // Date Modified\n  if (data.clientSummary !== undefined) sheet.getRange(row, 9).setValue(data.clientSummary);\n  if (data.clientType !== undefined) sheet.getRange(row, 10).setValue(data.clientType);\n  if (data.account !== undefined) sheet.getRange(row, 11).setValue(data.account);\n  if (data.photoUrl !== undefined) sheet.getRange(row, 12).setValue(data.photoUrl);\n  if (data.status !== undefined) sheet.getRange(row, 13).setValue(data.status);\n  \n  return successResponse({\n    action: 'update',\n    contactId: contact.data[0],\n    email: email,\n    message: 'Contact updated successfully'\n  });\n}\n\n/**\n * Upsert (update or create)\n */\nfunction upsertContact(data) {\n  const existing = findContactByEmail(data.email);\n  \n  if (existing) {\n    return updateContact(data.email, data);\n  } else {\n    return createContact(data);\n  }\n}\n\n/**\n * Search contacts\n */\nfunction searchContacts(criteria) {\n  const sheet = SS.getSheetByName(SHEET_NAME);\n  const data = sheet.getDataRange().getValues();\n  const headers = data[0];\n  const rows = data.slice(1);\n  \n  let results = rows;\n  \n  // Apply filters\n  if (criteria.email) {\n    results = results.filter(row => \n      row[1] && row[1].toLowerCase().includes(criteria.email.toLowerCase())\n    );\n  }\n  \n  if (criteria.name) {\n    results = results.filter(row => \n      row[2] && row[2].toLowerCase().includes(criteria.name.toLowerCase())\n    );\n  }\n  \n  if (criteria.company) {\n    results = results.filter(row => \n      row[4] && row[4].toLowerCase().includes(criteria.company.toLowerCase())\n    );\n  }\n  \n  if (criteria.status) {\n    results = results.filter(row => row[12] === criteria.status);\n  }\n  \n  // Convert to objects\n  const contacts = results.map(row => rowToContact(row));\n  \n  return successResponse({\n    action: 'search',\n    count: contacts.length,\n    contacts: contacts\n  });\n}\n\n/**\n * Get single contact by email\n */\nfunction getContact(email) {\n  const contact = findContactByEmail(email);\n  \n  if (!contact) {\n    return errorResponse('Contact not found');\n  }\n  \n  return successResponse({\n    action: 'get',\n    contact: rowToContact(contact.data)\n  });\n}\n\n/**\n * List all contacts\n */\nfunction listAllContacts(limit) {\n  const sheet = SS.getSheetByName(SHEET_NAME);\n  const data = sheet.getDataRange().getValues();\n  const rows = data.slice(1, limit + 1);\n  \n  const contacts = rows.map(row => rowToContact(row));\n  \n  return successResponse({\n    action: 'list',\n    count: contacts.length,\n    contacts: contacts\n  });\n}\n\n/**\n * Delete contact\n */\nfunction deleteContact(email) {\n  const contact = findContactByEmail(email);\n  \n  if (!contact) {\n    return errorResponse('Contact not found');\n  }\n  \n  const sheet = SS.getSheetByName(SHEET_NAME);\n  sheet.deleteRow(contact.row);\n  \n  return successResponse({\n    action: 'delete',\n    email: email,\n    message: 'Contact deleted successfully'\n  });\n}\n\n/**\n * Helper: Find contact by email\n */\nfunction findContactByEmail(email) {\n  const sheet = SS.getSheetByName(SHEET_NAME);\n  const data = sheet.getDataRange().getValues();\n  \n  for (let i = 1; i < data.length; i++) {\n    if (data[i][1] && data[i][1].toLowerCase() === email.toLowerCase()) {\n      return {\n        row: i + 1,\n        data: data[i]\n      };\n    }\n  }\n  \n  return null;\n}\n\n/**\n * Helper: Convert row to contact object\n */\nfunction rowToContact(row) {\n  return {\n    contactId: row[0],\n    email: row[1],\n    fullName: row[2],\n    phone: row[3],\n    company: row[4],\n    address: row[5],\n    dateAdded: row[6],\n    dateModified: row[7],\n    clientSummary: row[8],\n    clientType: row[9],\n    account: row[10],\n    photoUrl: row[11],\n    status: row[12]\n  };\n}\n\n/**\n * Helper: Success response\n */\nfunction successResponse(data) {\n  return ContentService\n    .createTextOutput(JSON.stringify({\n      success: true,\n      ...data\n    }))\n    .setMimeType(ContentService.MimeType.JSON);\n}\n\n/**\n * Helper: Error response\n */\nfunction errorResponse(message) {\n  return ContentService\n    .createTextOutput(JSON.stringify({\n      success: false,\n      error: message\n    }))\n    .setMimeType(ContentService.MimeType.JSON);\n}"
+  },
+
+  "n8nWorkflow": {
+    "nodes": [
+      {
+        "name": "Prepare Contact Data",
+        "type": "n8n-nodes-base.code",
+        "description": "Extracts and formats contact data for Apps Script API",
+        "parameters": {
+          "jsCode": "const input = $input.item.json;\n\n// Extract fields\nfunction extract(obj, keys) {\n  for (const key of keys) {\n    if (obj[key]) return String(obj[key]).trim();\n  }\n  return '';\n}\n\nconst data = {\n  email: extract(input, ['Email_Address', 'email', 'Email']),\n  fullName: extract(input, ['Full_Name', 'fullName', 'name']),\n  phone: extract(input, ['Phone_Number', 'phone']),\n  company: extract(input, ['Company_Name', 'company']),\n  address: extract(input, ['Address', 'address']),\n  clientSummary: extract(input, ['Client_Summary__AI_', 'clientSummary', 'summary']),\n  clientType: extract(input, ['Client_Type', 'clientType', 'type']),\n  account: extract(input, ['Account', 'account']),\n  photoUrl: extract(input, ['Photo_URL', 'photoUrl'])\n};\n\n// Validation\nif (!data.email || !data.fullName) {\n  throw new Error('Email and Full Name are required');\n}\n\nreturn { json: { action: 'upsert', data: data } };"
+        },
+        "position": [1400, 1200]
+      },
+
+      {
+        "name": "Call Apps Script - Upsert",
+        "type": "n8n-nodes-base.httpRequest",
+        "description": "Calls Apps Script web app to create/update contact",
+        "parameters": {
+          "method": "POST",
+          "url": "YOUR_APPS_SCRIPT_WEB_APP_URL",
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "action",
+                "value": "={{ $json.action }}"
+              },
+              {
+                "name": "data",
+                "value": "={{ JSON.stringify($json.data) }}"
+              }
+            ]
+          },
+          "options": {
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            }
+          }
+        },
+        "position": [1540, 1200]
+      },
+
+      {
+        "name": "Call Apps Script - Search",
+        "type": "n8n-nodes-base.httpRequest",
+        "description": "Searches contacts via Apps Script",
+        "parameters": {
+          "method": "POST",
+          "url": "YOUR_APPS_SCRIPT_WEB_APP_URL",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"action\": \"search\",\n  \"criteria\": {\n    \"email\": \"{{ $fromAI('searchEmail', 'Email to search for', 'string') }}\",\n    \"name\": \"{{ $fromAI('searchName', 'Name to search for', 'string') }}\",\n    \"company\": \"{{ $fromAI('searchCompany', 'Company to search for', 'string') }}\"\n  }\n}",
+          "options": {
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            }
+          }
+        },
+        "position": [1400, 1300]
+      },
+
+      {
+        "name": "Call Apps Script - Delete",
+        "type": "n8n-nodes-base.httpRequest",
+        "description": "Deletes contact via Apps Script",
+        "parameters": {
+          "method": "POST",
+          "url": "YOUR_APPS_SCRIPT_WEB_APP_URL",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"action\": \"delete\",\n  \"email\": \"{{ $fromAI('email', 'Email of contact to delete', 'string') }}\"\n}",
+          "options": {
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            }
+          }
+        },
+        "position": [1400, 1350]
+      },
+
+      {
+        "name": "Call Apps Script - Get",
+        "type": "n8n-nodes-base.httpRequest",
+        "description": "Gets single contact by email",
+        "parameters": {
+          "method": "POST",
+          "url": "YOUR_APPS_SCRIPT_WEB_APP_URL",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\n  \"action\": \"get\",\n  \"email\": \"{{ $fromAI('email', 'Email of contact to get', 'string') }}\"\n}",
+          "options": {
+            "response": {
+              "response": {
+                "responseFormat": "json"
+              }
+            }
+          }
+        },
+        "position": [1400, 1250]
+      }
+    ]
+  },
+
+  "deployment": {
+    "steps": [
+      "1. Open your Google Sheet",
+      "2. Go to Extensions → Apps Script",
+      "3. Delete default Code.gs content",
+      "4. Paste the Apps Script code from above",
+      "5. Save the project (name it 'Contact Manager API')",
+      "6. Click Deploy → New Deployment",
+      "7. Choose 'Web app' as deployment type",
+      "8. Set 'Execute as' to 'Me'",
+      "9. Set 'Who has access' to 'Anyone' (or restrict with API key)",
+      "10. Click Deploy",
+      "11. Copy the Web app URL",
+      "12. Paste URL into YOUR_APPS_SCRIPT_WEB_APP_URL in n8n nodes",
+      "13. Test with a POST request"
+    ],
+    "security": {
+      "option1": "Anyone access (simple but less secure)",
+      "option2": "Add API key authentication in Apps Script code",
+      "option3": "Use Google OAuth for n8n requests"
+    }
+  },
+
+  "advantages": [
+    "✅ Maximum performance (server-side processing)",
+    "✅ Custom business logic in Apps Script",
+    "✅ Unique Contact IDs generated automatically",
+    "✅ True upsert in single operation",
+    "✅ Advanced search capabilities",
+    "✅ Can add triggers, notifications, etc.",
+    "✅ Scales better than direct sheet operations",
+    "✅ Clean API interface for n8n",
+    "✅ Email-based operations (no row number hassles)",
+    "✅ Status field for soft deletes",
+    "✅ Automatic timestamp management",
+    "✅ Can add data validation, business rules"
+  ],
+
+  "disadvantages": [
+    "❌ Requires Apps Script knowledge",
+    "❌ More complex setup and deployment",
+    "❌ Need to manage web app URL",
+    "❌ Debugging is harder (Apps Script logs)",
+    "❌ Quota limits (6 min/execution for free accounts)",
+    "❌ Cold start latency for first request",
+    "❌ Requires redeployment for code changes"
+  ],
+
+  "bestFor": [
+    "Advanced users comfortable with JavaScript",
+    "When you need custom business logic",
+    "When performance is critical (many contacts)",
+    "When you want clean API abstraction",
+    "When you need unique IDs for contacts",
+    "When you want to add features like:",
+    "  - Email notifications on contact changes",
+    "  - Data validation rules",
+    "  - Audit logs",
+    "  - Integration with other Google services",
+    "  - Batch operations",
+    "  - Export/import functionality"
+  ],
+
+  "additionalFeatures": {
+    "canAdd": [
+      "Email notifications via MailApp",
+      "Duplicate detection algorithm",
+      "Data validation and sanitization",
+      "Audit trail (who changed what when)",
+      "Batch import from CSV",
+      "Export contacts to various formats",
+      "Integration with Google Contacts API",
+      "Scheduled cleanup of old/inactive contacts",
+      "Analytics (contact growth, etc.)",
+      "Webhook notifications to n8n"
+    ]
+  },
+
+  "apiDocumentation": {
+    "baseUrl": "YOUR_APPS_SCRIPT_WEB_APP_URL",
+    "endpoints": {
+      "create": {
+        "action": "create",
+        "required": ["data.email", "data.fullName"],
+        "optional": ["data.phone", "data.company", "data.address", "data.clientSummary", "data.clientType", "data.account", "data.photoUrl"]
+      },
+      "update": {
+        "action": "update",
+        "required": ["email", "data"],
+        "note": "Only updates provided fields"
+      },
+      "upsert": {
+        "action": "upsert",
+        "required": ["data.email", "data.fullName"],
+        "note": "Creates if not exists, updates if exists"
+      },
+      "search": {
+        "action": "search",
+        "optional": ["criteria.email", "criteria.name", "criteria.company", "criteria.status"],
+        "returns": "Array of matching contacts"
+      },
+      "get": {
+        "action": "get",
+        "required": ["email"],
+        "returns": "Single contact object"
+      },
+      "delete": {
+        "action": "delete",
+        "required": ["email"]
+      },
+      "list": {
+        "action": "list",
+        "optional": ["limit"],
+        "default": "100 contacts"
+      }
+    },
+    "responseFormat": {
+      "success": {
+        "success": true,
+        "action": "action_name",
+        "data": "..."
+      },
+      "error": {
+        "success": false,
+        "error": "Error message"
+      }
+    }
+  }
+}

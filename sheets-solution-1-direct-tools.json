@@ -1,0 +1,214 @@
+{
+  "name": "Solution 1: Direct Google Sheets Tool Replacement",
+  "description": "Replace Airtable Tool nodes with Google Sheets Tool nodes directly. Simplest migration with minimal code changes.",
+  "difficulty": "Easy",
+  "setup_time": "30-45 minutes",
+  "maintenance": "Low",
+
+  "prerequisites": {
+    "googleSheet": {
+      "name": "Client Contacts",
+      "url": "CREATE_NEW_SHEET",
+      "structure": {
+        "columns": [
+          "Row #",
+          "Full Name",
+          "Email Address",
+          "Phone Number",
+          "Company Name",
+          "Address",
+          "Date Added",
+          "Client Summary (AI)",
+          "Client Type (AI)",
+          "Account",
+          "Photo URL"
+        ],
+        "headerRow": 1,
+        "dataStartsRow": 2
+      }
+    }
+  },
+
+  "nodes": [
+    {
+      "name": "Get Contacts (Search)",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "description": "Replaces Airtable 'Get Contacts2' search tool",
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Contacts",
+          "mode": "list"
+        },
+        "options": {
+          "range": "A2:K1000"
+        }
+      },
+      "notes": "Gets all contacts. Filtering happens in Code node or via AI agent logic.",
+      "position": [1296, 1248]
+    },
+
+    {
+      "name": "Filter Contacts",
+      "type": "n8n-nodes-base.code",
+      "description": "Filters contacts based on AI search criteria (replaces filterByFormula)",
+      "parameters": {
+        "jsCode": "// Get search criteria from AI\nconst searchEmail = $input.item.json.searchEmail || '';\nconst searchName = $input.item.json.searchName || '';\nconst searchCompany = $input.item.json.searchCompany || '';\n\n// Get all rows from Google Sheets\nconst allContacts = $input.all();\n\n// Filter based on criteria\nconst filtered = allContacts.filter(contact => {\n  const data = contact.json;\n  \n  // Email match (exact or partial)\n  if (searchEmail && data['Email Address']) {\n    if (data['Email Address'].toLowerCase().includes(searchEmail.toLowerCase())) {\n      return true;\n    }\n  }\n  \n  // Name match (partial)\n  if (searchName && data['Full Name']) {\n    if (data['Full Name'].toLowerCase().includes(searchName.toLowerCase())) {\n      return true;\n    }\n  }\n  \n  // Company match (partial)\n  if (searchCompany && data['Company Name']) {\n    if (data['Company Name'].toLowerCase().includes(searchCompany.toLowerCase())) {\n      return true;\n    }\n  }\n  \n  // If no search criteria, return all\n  if (!searchEmail && !searchName && !searchCompany) {\n    return true;\n  }\n  \n  return false;\n});\n\nreturn filtered;"
+      },
+      "position": [1400, 1248],
+      "notes": "Optional: Only needed if you want server-side filtering"
+    },
+
+    {
+      "name": "Create New Contact",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "description": "Replaces Airtable 'Create a New' tool",
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Contacts",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Full Name": "={{ $fromAI('Full_Name', 'The full name of the contact', 'string') }}",
+            "Email Address": "={{ $fromAI('Email_Address', 'The email address of the contact', 'string') }}",
+            "Phone Number": "={{ $fromAI('Phone_Number', 'The phone number (optional)', 'string') }}",
+            "Company Name": "={{ $fromAI('Company_Name', 'The company name (optional)', 'string') }}",
+            "Address": "={{ $fromAI('Address', 'The address (optional)', 'string') }}",
+            "Date Added": "={{ $now.toISO() }}",
+            "Client Summary (AI)": "={{ $fromAI('Client_Summary__AI_', 'Brief summary about the client (optional)', 'string') }}",
+            "Client Type (AI)": "={{ $fromAI('Client_Type', 'Type of client (optional)', 'string') }}",
+            "Account": "={{ $fromAI('Account', 'Account info (optional)', 'string') }}",
+            "Photo URL": ""
+          },
+          "schema": [
+            {"id": "Full Name", "displayName": "Full Name", "required": true, "type": "string"},
+            {"id": "Email Address", "displayName": "Email Address", "required": true, "type": "string"},
+            {"id": "Phone Number", "displayName": "Phone Number", "type": "string"},
+            {"id": "Company Name", "displayName": "Company Name", "type": "string"},
+            {"id": "Address", "displayName": "Address", "type": "string"},
+            {"id": "Date Added", "displayName": "Date Added", "type": "string"},
+            {"id": "Client Summary (AI)", "displayName": "Client Summary (AI)", "type": "string"},
+            {"id": "Client Type (AI)", "displayName": "Client Type (AI)", "type": "string"},
+            {"id": "Account", "displayName": "Account", "type": "string"},
+            {"id": "Photo URL", "displayName": "Photo URL", "type": "string"}
+          ]
+        }
+      },
+      "position": [1520, 1248],
+      "notes": "⚠️ Still uses $fromAI() - will have same issues as Airtable version. See Solution 2 for fix."
+    },
+
+    {
+      "name": "Update Contact (Append or Update)",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "description": "Replaces Airtable 'Add or Update' upsert tool",
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Contacts",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": ["Email Address"]
+        },
+        "options": {}
+      },
+      "position": [1408, 1248],
+      "notes": "Uses Email Address as unique identifier. Will update if exists, append if new."
+    },
+
+    {
+      "name": "Delete Contact",
+      "type": "n8n-nodes-base.googleSheetsTool",
+      "description": "Replaces Airtable 'Delete' tool",
+      "parameters": {
+        "operation": "delete",
+        "documentId": {
+          "__rl": true,
+          "value": "GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Contacts",
+          "mode": "list"
+        },
+        "startIndex": "={{ $fromAI('Row_Number', 'The row number to delete (must search first)', 'number') }}",
+        "numberToDelete": 1
+      },
+      "position": [1632, 1248],
+      "notes": "Requires row number. Agent must search first to get row number, then delete."
+    }
+  ],
+
+  "updatedAgentPrompt": "# Overview\nYou are a contact management assistant. Your responsibilities include looking up contacts, adding new contacts, or updating a contact's information.\n\n**Contact Management Tools**\n- Use \"Get Contacts\" to search for existing contacts by email, name, or company\n- Use \"Create New Contact\" to create brand new contacts that don't exist yet\n- Use \"Update Contact\" to update existing contact information (will create if doesn't exist)\n- Use \"Delete Contact\" to delete contacts - MUST search first to get row number\n\n**When creating new contacts:**\n1. Always require at minimum: Full Name and Email Address\n2. Optional fields: Phone Number, Company Name, Address, Client Summary, Client Type, Account\n3. Date Added is auto-populated with current date/time\n4. Confirm successful creation to the user\n\n**When updating contacts:**\n1. The system will automatically match by Email Address\n2. If email exists, it updates. If not, it creates new.\n3. Only provide fields you want to update\n\n**When deleting contacts:**\n1. IMPORTANT: You must search for the contact FIRST using \"Get Contacts\"\n2. Note the row number from the search results (it's in the data)\n3. Then use \"Delete Contact\" with that row number\n4. Confirm deletion to user\n\n**IMPORTANT DATA FORMAT:**\nWhen creating/updating, extract:\n- Full_Name: Person's complete name (REQUIRED)\n- Email_Address: Valid email (REQUIRED)\n- Phone_Number: Contact phone (optional)\n- Company_Name: Company name (optional)\n- Address: Full address (optional)\n- Client_Summary__AI_: Brief summary (optional)\n- Client_Type: Type of client (optional)\n- Account: Account info (optional)\n\n**Current date/time:** {{ $now }}",
+
+  "implementation": {
+    "steps": [
+      "1. Create new Google Sheet named 'Client Contacts'",
+      "2. Set up columns as specified in prerequisites",
+      "3. Add header row: Row # | Full Name | Email Address | Phone Number | Company Name | Address | Date Added | Client Summary (AI) | Client Type (AI) | Account | Photo URL",
+      "4. In column A (Row #), add formula in A2: =ROW()-1 and drag down",
+      "5. Replace Airtable credential in nodes with Google Sheets credential",
+      "6. Update GOOGLE_SHEET_ID in all node parameters",
+      "7. Connect nodes to Contact Agent same way as Airtable nodes",
+      "8. Update Contact Agent system message with new prompt",
+      "9. Test: Create, Read, Update, Delete operations",
+      "10. Monitor for any issues with $fromAI() extraction (same issue as Airtable)"
+    ]
+  },
+
+  "advantages": [
+    "✅ Simplest migration - drop-in replacement",
+    "✅ Uses existing Google Sheets Tool nodes",
+    "✅ No custom code required (except optional filtering)",
+    "✅ Native 'appendOrUpdate' for upsert functionality",
+    "✅ Familiar Google Sheets interface for viewing data",
+    "✅ Already have Google Sheets credential configured"
+  ],
+
+  "disadvantages": [
+    "❌ Still has $fromAI() extraction issues in Create node",
+    "❌ Delete requires two-step process (search then delete)",
+    "❌ No native photo storage (needs Drive URLs)",
+    "❌ Filtering less powerful than Airtable formulas",
+    "❌ Row-based operations can be fragile",
+    "❌ No built-in unique IDs (uses row numbers)"
+  ],
+
+  "bestFor": [
+    "Quick migration with minimal code changes",
+    "Teams already comfortable with Google Sheets",
+    "When you want to manually view/edit contact data easily",
+    "Simple use cases without complex filtering needs"
+  ],
+
+  "notRecommendedFor": [
+    "If you need robust photo/attachment storage",
+    "If you need complex filtering/formulas",
+    "If data integrity is critical (row numbers can change)",
+    "If you want to fix the $fromAI() issue (use Solution 2 instead)"
+  ]
+}
