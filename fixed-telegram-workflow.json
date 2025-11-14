@@ -1,0 +1,399 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        1376,
+        192
+      ],
+      "id": "0c28ef3c-6242-4354-91b2-e97e78da6ebe",
+      "name": "Telegram Trigger",
+      "webhookId": "bea4843e-25e4-4d89-b3f6-4237798e9b42",
+      "credentials": {
+        "telegramApi": {
+          "id": "5abGqAkU1jt07FQs",
+          "name": "N8nAIAssistant 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "e7211e46-0f49-46a0-9cb7-e83fed150efd",
+                    "leftValue": "={{ $json.message.photo }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "array",
+                      "operation": "exists",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Photo"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.message.text }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "string",
+                      "operation": "exists",
+                      "singleValue": true
+                    },
+                    "id": "85edf561-8f5e-4215-9e19-78ff0392068e"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Text"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "d532a259-5c88-40e2-b108-d4ea46dd74de",
+                    "leftValue": "={{ $json.message.voice }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "object",
+                      "operation": "exists",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Voice"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1584,
+        176
+      ],
+      "id": "30a550d0-e5cf-49bd-b91a-4cbb74f16ec5",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "fileId": "={{ $json.message.photo[3].file_id }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1824,
+        96
+      ],
+      "id": "2fc2d5f9-bbd1-4b47-beb9-175436e93434",
+      "name": "Download File",
+      "webhookId": "fb18f65f-c1cf-4473-b59d-d59d6b96e9ea",
+      "credentials": {
+        "telegramApi": {
+          "id": "5abGqAkU1jt07FQs",
+          "name": "N8nAIAssistant 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "={{ $now.format('yyyy-MM-dd') }}",
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list",
+          "cachedResultName": "My Drive",
+          "cachedResultUrl": "https://drive.google.com/drive/my-drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1jRCYt3pOs9STxxbQwirUdm_xXL-Yhbi8",
+          "mode": "list",
+          "cachedResultName": "Media Analysis",
+          "cachedResultUrl": "https://drive.google.com/drive/folders/1jRCYt3pOs9STxxbQwirUdm_xXL-Yhbi8"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1968,
+        96
+      ],
+      "id": "3c9ff6ea-eba2-4ea7-ba8c-fefda1016b2c",
+      "name": "Upload file",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "8CmlpIUciMBHxOIV",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "53de4eb0-6684-48f5-a5b5-2b3bedaff817",
+              "name": "message.text",
+              "value": "=The user just submitted a picture. Here is the ID of that file in Google Drive: {{ $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2128,
+        96
+      ],
+      "id": "246c1c09-6d14-4919-889d-af53246e05c1",
+      "name": "Set Text"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message.text }}",
+        "needsFallback": true,
+        "options": {
+          "systemMessage": "=Overview\nYou are the ultimate manager agent. Your job is to help the user out with the task by using your tools to delegate the task to the correct tool. You should never be writing emails or creating summaries — your sole responsibility is to call the correct tool.\n\nTools\nGoogle Drive Agent: Use this tool to take action in Google Drive\n\nEmail Agent: Use this tool to take action in email\n\nCalendar Agent: Use this tool to take action in calendar\n\nContact Agent: Use this tool to take action with contacts\n\nSocial Media Agent: Use this agent to search for posts on a social platform\n\nCreative Agent: Use this agent to create images, edit images, turn images to video, and create videos\n\nPosting Agent: Use this agent to post on social media. You must send the fileID and the post caption\n\nWeb Agent: Use this agent to search the web for anything\n\nCreate Doc: Use this tool to create a Google Doc; always send the user the link to the finished doc once it has been created\n\nSheet Agent: Use this tool to take action in Google Sheets (fetch, append, update, or delete data in a spreadsheet)\n\nThink: Use this when you feel stuck and need to think about what to do next\n\nSheet Agent Actions\nUse \"Get row(s) in sheet in Google Sheets\" to fetch data\n\nUse \"Append or update row in sheet in Google Sheets\" to add new data or update existing data\n\nUse \"Delete rows or columns from sheet in Google Sheets\" to remove specific rows or columns. Always get indices first before deleting.\n\nInstructions\nIf the user submits a photo or image:\n\nAnalyze the image using available tools.\n\nBased on image type, ask appropriate questions:\n\nIf it is an invoice, ask if you should extract the key data (such as date, amount, merchant, etc.) and store it in the Expense Tracker Tool (Sheet Agent).\n\nIf it is a receipt, ask if you should extract the text and:\n\nCreate a Google Doc with the receipt details.\n\nOptionally create a new Doc and store the extracted information.\n\nFor other images, ask context-aware follow-up questions to clarify what action the user wants.\n\nAlways ask the user what to call the photo, then change its name in Google Drive.\n\nSome actions require you to look up contact information first. For the following actions, you must get contact information and send that to the agent who needs it:\n\nsending emails\n\ndrafting emails\n\ncreating calendar event with attendee\n\nImages/videos are found in the database; use the Google Drive Agent to get those.\n\nBefore asking follow-up questions, use your Think tool to figure out what to do next.\n\nBefore posting anything, the file must be shared to anyone in Google Drive.\n\nWhen creating videos, don't ask how long they should be.\n\nAlways output a message back to the user; never say nothing.",
+          "returnIntermediateSteps": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        2288,
+        192
+      ],
+      "id": "89d6d419-2440-41ff-a597-e787cb1bfb4a",
+      "name": "Ultimate Media Agent",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "fileId": "={{ $json.message.voice.file_id }}",
+        "additionalFields": {}
+      },
+      "id": "b9533098-dd1b-457e-b205-4d3e31a3dd29",
+      "name": "Get audio file1",
+      "type": "n8n-nodes-base.telegram",
+      "position": [
+        1824,
+        272
+      ],
+      "webhookId": "73d0d328-d75b-4bb0-a1b9-81d42a2f2bfd",
+      "typeVersion": 1.2,
+      "credentials": {
+        "telegramApi": {
+          "id": "5abGqAkU1jt07FQs",
+          "name": "N8nAIAssistant 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "audio",
+        "operation": "transcribe",
+        "options": {}
+      },
+      "id": "793793d8-4edf-4f4a-8f7a-d67986a82614",
+      "name": "Transcribe audio1",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "position": [
+        2032,
+        272
+      ],
+      "typeVersion": 1.8,
+      "credentials": {
+        "openAiApi": {
+          "id": "ljPiUGodyls8xxDD",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1b2c3d4-5e6f-7890-abcd-ef1234567890",
+              "name": "message.text",
+              "value": "={{ $json.text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2208,
+        272
+      ],
+      "id": "9a8b7c6d-5e4f-3210-9876-543210fedcba",
+      "name": "Set Voice Text"
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Download File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ultimate Media Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get audio file1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download File": {
+      "main": [
+        [
+          {
+            "node": "Upload file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload file": {
+      "main": [
+        [
+          {
+            "node": "Set Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Text": {
+      "main": [
+        [
+          {
+            "node": "Ultimate Media Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ultimate Media Agent": {
+      "main": [
+        [],
+        []
+      ]
+    },
+    "Get audio file1": {
+      "main": [
+        [
+          {
+            "node": "Transcribe audio1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribe audio1": {
+      "main": [
+        [
+          {
+            "node": "Set Voice Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Voice Text": {
+      "main": [
+        [
+          {
+            "node": "Ultimate Media Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "14e0ec6b8f6cd47e9b63ae4394cb6973e0267917e3fcae3a4e58268d661d176b"
+  }
+}
