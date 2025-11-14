@@ -6,6 +6,7 @@ import { ResultReason } from 'microsoft-cognitiveservices-speech-sdk';
 import './App.css';
 //import { Input } from '@material-ui/core';
 import BatchPage from './batchPage.js';
+import LandingPage from './LandingPage.js';
 
 const speechsdk = require('microsoft-cognitiveservices-speech-sdk')
 var recognizer;
@@ -19,7 +20,7 @@ export default class App extends Component {
       this.handleSubmit = this.handleSubmit.bind(this);
       this.handleWindowClick = this.handleWindowClick.bind(this);
 
-      this.state = {     
+      this.state = {
         displayText: 'READY to start call simulation',
         displayNLPOutput: '',
         gptSummaryText: '',
@@ -27,6 +28,7 @@ export default class App extends Component {
         gptCustomPrompt: '',
         gptCustomPrompt2: '',
         showBatchPage: false,
+        showLandingPage: true,
         activeWindow: "Live"
       };
   }
@@ -36,6 +38,15 @@ export default class App extends Component {
       showBatchPage: !prevState.showBatchPage,
     }));
   };
+
+  handleNavigateToAnalytics = () => {
+    this.setState({ showLandingPage: false });
+  };
+
+  handleNavigateToHome = () => {
+    this.setState({ showLandingPage: true, showBatchPage: false });
+  };
+
   handleWindowClick = (windowName) => {
     this.setState({ activeWindow: windowName });
   };
@@ -176,6 +187,11 @@ export default class App extends Component {
   }
 
   render() {
+      // Show Landing Page if showLandingPage is true
+      if (this.state.showLandingPage) {
+          return <LandingPage onNavigateToAnalytics={this.handleNavigateToAnalytics} />;
+      }
+
       let pageComponent = null;
 
       if (this.state.showBatchPage) {
@@ -184,6 +200,14 @@ export default class App extends Component {
           pageComponent = (
               <Container className="app-container">
                   <div class="card text-white bg-dark mb-3 text-center" >
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-light"
+                        onClick={this.handleNavigateToHome}
+                        style={{ position: 'absolute', top: '10px', left: '10px' }}
+                      >
+                        <i className="fas fa-home"></i> Back to Home
+                      </button>
 
                       <h3 class="card-header">Call-Center Analytics</h3>
                       <p> </p>
