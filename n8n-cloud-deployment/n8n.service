@@ -1,0 +1,65 @@
+# n8n Systemd Service File
+#
+# Installation Instructions:
+# 1. Edit this file and replace:
+#    - YOUR_USERNAME with your actual username
+#    - /path/to/node with output of: which node
+#    - /path/to/n8n with output of: which n8n
+#
+# 2. Copy this file to systemd directory:
+#    sudo cp n8n.service /etc/systemd/system/
+#
+# 3. Reload systemd:
+#    sudo systemctl daemon-reload
+#
+# 4. Enable n8n to start on boot:
+#    sudo systemctl enable n8n
+#
+# 5. Start n8n:
+#    sudo systemctl start n8n
+#
+# 6. Check status:
+#    sudo systemctl status n8n
+
+[Unit]
+Description=n8n - Workflow Automation Tool
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+WorkingDirectory=/home/YOUR_USERNAME
+ExecStart=/path/to/node /path/to/n8n start
+
+# Environment variables
+Environment="N8N_HOST=0.0.0.0"
+Environment="N8N_PORT=5678"
+Environment="N8N_PROTOCOL=https"
+Environment="WEBHOOK_URL=https://n8n.terryglennon.org"
+Environment="N8N_EDITOR_BASE_URL=https://n8n.terryglennon.org"
+Environment="GENERIC_TIMEZONE=America/New_York"
+
+# Optional: Database configuration (uncomment if using PostgreSQL)
+# Environment="DB_TYPE=postgresdb"
+# Environment="DB_POSTGRESDB_HOST=localhost"
+# Environment="DB_POSTGRESDB_PORT=5432"
+# Environment="DB_POSTGRESDB_DATABASE=n8n"
+# Environment="DB_POSTGRESDB_USER=n8n"
+# Environment="DB_POSTGRESDB_PASSWORD=your_password"
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=0
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=n8n
+
+# Resource limits (optional, adjust as needed)
+LimitNOFILE=65536
+MemoryLimit=2G
+
+[Install]
+WantedBy=multi-user.target
