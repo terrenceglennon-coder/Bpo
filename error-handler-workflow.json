@@ -1,0 +1,193 @@
+{
+  "name": "Invoice Uploader - Error Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "errorWorkflows": "={{ $workflow.id }}"
+      },
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [200, 300],
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract error information\nconst error = $input.first().json.error;\nconst execution = $input.first().json.execution;\n\n// Get original Telegram message info if available\nlet chatId = null;\nlet messageId = null;\n\ntry {\n  const triggerData = execution.data.resultData.runData['Telegram Trigger'];\n  if (triggerData && triggerData[0]?.data?.main?.[0]?.[0]?.json) {\n    const msg = triggerData[0].data.main[0][0].json.message;\n    chatId = msg?.chat?.id;\n    messageId = msg?.message_id;\n  }\n} catch (e) {\n  console.log('Could not extract Telegram info from execution data');\n}\n\n// Categorize error type\nlet errorType = 'unknown';\nlet userMessage = '❌ Sorry, something went wrong processing your invoice.';\nlet shouldRetry = false;\n\nconst errorMessage = error.message?.toLowerCase() || '';\n\nif (errorMessage.includes('file') || errorMessage.includes('download')) {\n  errorType = 'file_error';\n  userMessage = '❌ Could not process the file. Please ensure you sent a clear image or PDF.';\n} else if (errorMessage.includes('openai') || errorMessage.includes('api')) {\n  errorType = 'api_error';\n  userMessage = '⚠️ Temporary issue with AI service. Please try again in a moment.';\n  shouldRetry = true;\n} else if (errorMessage.includes('validation')) {\n  errorType = 'validation_error';\n  userMessage = `❌ Data validation failed:\\n${error.message.replace('Error:', '').trim()}`;\n} else if (errorMessage.includes('google') || errorMessage.includes('sheets')) {\n  errorType = 'sheets_error';\n  userMessage = '⚠️ Could not save to spreadsheet. Please try again.';\n  shouldRetry = true;\n} else if (errorMessage.includes('network') || errorMessage.includes('timeout')) {\n  errorType = 'network_error';\n  userMessage = '⚠️ Network timeout. Please try again.';\n  shouldRetry = true;\n}\n\nreturn [{\n  json: {\n    error_type: errorType,\n    error_message: error.message,\n    error_stack: error.stack,\n    user_message: userMessage,\n    should_retry: shouldRetry,\n    chat_id: chatId,\n    message_id: messageId,\n    execution_id: execution.id,\n    workflow_id: execution.workflowId,\n    timestamp: new Date().toISOString(),\n    node_name: error.node?.name || 'unknown',\n    node_type: error.node?.type || 'unknown'\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [400, 300],
+      "name": "Analyze Error"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition1",
+              "leftValue": "={{ $json.chat_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [600, 300],
+      "name": "Can Notify User?"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.user_message }}",
+        "additionalFields": {
+          "reply_to_message_id": "={{ $json.message_id }}"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [800, 200],
+      "name": "Notify User via Telegram",
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIALS_ID",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_ERROR_LOG_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Error Log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $json.timestamp }}",
+            "Error Type": "={{ $json.error_type }}",
+            "Error Message": "={{ $json.error_message }}",
+            "Node Name": "={{ $json.node_name }}",
+            "Node Type": "={{ $json.node_type }}",
+            "User Notified": "={{ $json.chat_id ? 'Yes' : 'No' }}",
+            "Should Retry": "={{ $json.should_retry ? 'Yes' : 'No' }}",
+            "Execution ID": "={{ $json.execution_id }}",
+            "Workflow ID": "={{ $json.workflow_id }}"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [800, 400],
+      "name": "Log Error to Sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_SHEETS_CREDENTIALS_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition2",
+              "leftValue": "={{ $json.error_type }}",
+              "rightValue": "validation_error",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1000, 300],
+      "name": "Is Critical Error?"
+    },
+    {
+      "parameters": {
+        "chatId": "ADMIN_CHAT_ID",
+        "text": "=🚨 *Critical Workflow Error*\\n\\n*Type:* {{ $json.error_type }}\\n*Node:* {{ $json.node_name }}\\n*Message:* {{ $json.error_message }}\\n*Execution:* {{ $json.execution_id }}\\n\\nPlease investigate immediately.",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1200, 200],
+      "name": "Alert Admin",
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIALS_ID",
+          "name": "Telegram Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [[{ "node": "Analyze Error", "type": "main", "index": 0 }]]
+    },
+    "Analyze Error": {
+      "main": [[{ "node": "Can Notify User?", "type": "main", "index": 0 }]]
+    },
+    "Can Notify User?": {
+      "main": [
+        [
+          { "node": "Notify User via Telegram", "type": "main", "index": 0 },
+          { "node": "Log Error to Sheet", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Log Error to Sheet", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Notify User via Telegram": {
+      "main": [[{ "node": "Is Critical Error?", "type": "main", "index": 0 }]]
+    },
+    "Log Error to Sheet": {
+      "main": [[{ "node": "Is Critical Error?", "type": "main", "index": 0 }]]
+    },
+    "Is Critical Error?": {
+      "main": [
+        [{ "node": "Alert Admin", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
