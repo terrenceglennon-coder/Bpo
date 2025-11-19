@@ -1,0 +1,243 @@
+{
+  "name": "5 Whys RCA - AI Agent (Simplified)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "id": "telegram_trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300],
+      "webhookId": "auto-generated",
+      "credentials": {
+        "telegramApi": {
+          "id": "{{ $credentials.telegramApi }}",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Extract message data\nconst message = $input.first().json.message.text;\nconst chatId = $input.first().json.message.chat.id;\nconst username = $input.first().json.message.from.username || 'Unknown';\nconst userId = $input.first().json.message.from.id;\nconst messageId = $input.first().json.message.message_id;\n\nreturn [{\n  json: {\n    userMessage: message,\n    chatId: chatId,\n    username: username,\n    userId: userId,\n    messageId: messageId,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "extract_message",
+      "name": "Extract Message Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "agent": "conversationalAgent",
+        "promptType": "define",
+        "text": "=You are a 5 Whys Root Cause Analysis facilitator for a call center operations team.\n\n**YOUR ROLE:**\nGuide users through a structured 5 Whys RCA process, ensuring high-quality data collection and analysis at each step.\n\n**AVAILABLE TOOLS:**\n- Google Sheets Read/Write (for session tracking and data storage)\n- Session State Management (track progress)\n- Data Validation (ensure quality)\n\n**CURRENT USER:**\nUsername: {{ $json.username }}\nUser ID: {{ $json.userId }}\nChat ID: {{ $json.chatId }}\n\n**PROCESS:**\n\n1. **Session Start** (/start5whys [ticket-id]):\n   - Create session in Google Sheets\n   - Generate session ID\n   - Ask for problem statement\n   - Validate problem has: specific KPI, baseline vs current, timeframe, scope\n   - Example: \"AHT increased from 420s to 485s (+15%) starting Nov 12, affecting Team Alpha\"\n\n2. **For Each WHY (1-5):**\n   - Generate specific, actionable WHY question based on previous answer\n   - Provide data collection guidance\n   - List 3-5 specific data points to check\n   - Wait for user to gather data and fill Google Sheet\n   - Validate data quality:\n     * Initial Answer: ≥10 chars\n     * Data Gathered: ≥20 chars, contains metrics/numbers\n     * Validated Answer: ≥10 chars\n   - Give quality feedback (Excellent/Good/Acceptable/Poor)\n   - If poor quality: ask for improvements (max 3 attempts)\n   - Store validated answer as input for next WHY\n\n3. **Final Analysis** (after all 5 Whys):\n   - Compile all 5 Whys data\n   - Generate comprehensive RCA summary including:\n     * Root cause (1-2 sentences, specific, actionable)\n     * Contributing factors (3-5 items)\n     * Validation (3 questions: will fix work? within control? specific enough?)\n     * Action plan (Immediate, Short-term, Mid-term, Long-term)\n     * Success metrics (3-5 KPIs to track)\n     * Risks & dependencies\n     * Additional insights\n   - Save to Google Sheets\n   - Send summary to user\n\n**COMMANDS:**\n- /start5whys [ticket] - Start new RCA\n- /status - Show current progress\n- /help - Show help\n- /cancel - Cancel session\n- /ready[N] - Mark WHY #N data as complete\n\n**CONVERSATION STYLE:**\n- Professional but friendly\n- Use emojis sparingly (🎯 ✅ ❌ ⚠️)\n- Be specific and actionable\n- Validate everything\n- Give clear examples\n- Encourage data-driven analysis\n\n**DATA QUALITY STANDARDS:**\n- Excellent: All fields filled, 50+ chars in data, contains metrics\n- Good: All fields filled, contains some metrics\n- Acceptable: All fields filled, meets minimums\n- Poor: Missing fields or too short\n\n**VALIDATION RULES:**\n- Problem statement: ≥20 chars, contains numbers\n- Initial Answer: ≥10 chars\n- Data Gathered: ≥20 chars, contains metrics\n- Validated Answer: ≥10 chars\n\n**ERROR HANDLING:**\n- If user provides incomplete data: explain what's missing\n- If timeout (1 hour): notify user, session stays active 24h\n- If API errors: retry 3 times, then notify user\n- Always be helpful and guide user to success\n\n**GOOGLE SHEET STRUCTURE:**\n\n**Sheet 1: RCA Session Tracker**\nColumns: sessionId | rcaTicket | owner | userId | status | started | completed | currentWhy | lastActivity | problemStatement | overallQuality\n\n**Sheet 2: 5 Whys Data Collection**\nColumns: sessionId | whyLevel | question | initialAnswer | dataGathered | validatedAnswer | status | dataQuality | attemptCount | createdAt | lastModified\n\n**Sheet 3: RCA Final Reports**\nColumns: sessionId | rcaTicket | problemStatement | finalAnalysis | overallQuality | completedAt | status\n\n**IMPORTANT:**\n- Always use the Google Sheets tools to track progress\n- Never lose session state\n- Always validate data before proceeding\n- Be patient and encouraging\n- Focus on helping user discover root cause, not just completing steps\n\nNow, respond to the user's message: {{ $json.userMessage }}",
+        "options": {
+          "systemMessage": "=You are a professional Root Cause Analysis facilitator. You help call center teams identify and solve operational issues using the 5 Whys methodology. You are thorough, data-driven, and focused on actionable outcomes."
+        },
+        "model": {
+          "model": "={{ $env.CLAUDE_MODEL || 'claude-sonnet-4-20250514' }}",
+          "apiKey": "={{ $env.ANTHROPIC_API_KEY }}"
+        },
+        "memory": {
+          "type": "windowBufferMemory",
+          "sessionKey": "={{ $json.chatId }}",
+          "contextWindowLength": 10
+        },
+        "tools": []
+      },
+      "id": "ai_agent",
+      "name": "AI Agent - 5 Whys Facilitator",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "name": "google_sheets_read",
+        "description": "Read data from Google Sheets. Use this to check session status, read WHY data, or fetch previous answers.",
+        "workflowId": "={{ $env.WORKFLOW_ID_SHEETS_READ }}",
+        "fields": {
+          "values": [
+            {
+              "name": "sheetName",
+              "value": "={{ $json.sheetName }}"
+            },
+            {
+              "name": "sessionId",
+              "value": "={{ $json.sessionId }}"
+            },
+            {
+              "name": "whyLevel",
+              "value": "={{ $json.whyLevel }}"
+            }
+          ]
+        },
+        "specifyInputSchema": true,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "sheetName": {
+              "type": "string",
+              "enum": ["RCA Session Tracker", "5 Whys Data Collection", "RCA Final Reports"],
+              "description": "Which sheet to read from"
+            },
+            "sessionId": {
+              "type": "string",
+              "description": "Session ID to filter by"
+            },
+            "whyLevel": {
+              "type": "number",
+              "description": "WHY level (1-5) to read (only for Data Collection sheet)"
+            }
+          },
+          "required": ["sheetName", "sessionId"]
+        }
+      },
+      "id": "tool_sheets_read",
+      "name": "Tool: Google Sheets Read",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "name": "google_sheets_write",
+        "description": "Write or update data in Google Sheets. Use this to create sessions, update progress, save WHY data, or store final analysis.",
+        "workflowId": "={{ $env.WORKFLOW_ID_SHEETS_WRITE }}",
+        "fields": {
+          "values": [
+            {
+              "name": "operation",
+              "value": "={{ $json.operation }}"
+            },
+            {
+              "name": "sheetName",
+              "value": "={{ $json.sheetName }}"
+            },
+            {
+              "name": "data",
+              "value": "={{ JSON.stringify($json.data) }}"
+            }
+          ]
+        },
+        "specifyInputSchema": true,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "operation": {
+              "type": "string",
+              "enum": ["create", "update", "append"],
+              "description": "Operation to perform"
+            },
+            "sheetName": {
+              "type": "string",
+              "enum": ["RCA Session Tracker", "5 Whys Data Collection", "RCA Final Reports"],
+              "description": "Which sheet to write to"
+            },
+            "data": {
+              "type": "object",
+              "description": "Data to write (JSON object)"
+            }
+          },
+          "required": ["operation", "sheetName", "data"]
+        }
+      },
+      "id": "tool_sheets_write",
+      "name": "Tool: Google Sheets Write",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "name": "validate_data",
+        "description": "Validate data quality for problem statements or WHY answers. Returns quality score and feedback.",
+        "jsCode": "// Validation function\nconst input = $input.first().json;\nconst dataType = input.dataType; // 'problem' or 'why'\nconst data = input.data;\n\nlet isValid = false;\nlet quality = 'Poor';\nlet feedback = [];\nlet issues = [];\n\nif (dataType === 'problem') {\n  // Validate problem statement\n  const length = data.length;\n  const hasNumbers = /\\d/.test(data);\n  const hasKPI = /\\b(aht|csat|nps|fcr|occupancy|utilization|abandonment|sla|handle time|wait time|transfer rate)\\b/i.test(data);\n  \n  if (length >= 20) {\n    feedback.push('✅ Length sufficient');\n  } else {\n    issues.push('❌ Too short (need 20+ characters)');\n  }\n  \n  if (hasNumbers) {\n    feedback.push('✅ Contains metrics');\n  } else {\n    issues.push('❌ Missing specific numbers/metrics');\n  }\n  \n  if (hasKPI) {\n    feedback.push('✅ Identifies KPI');\n  }\n  \n  isValid = length >= 20 && hasNumbers;\n  quality = isValid && hasKPI ? 'Excellent' : isValid ? 'Good' : 'Poor';\n  \n} else if (dataType === 'why') {\n  // Validate WHY data\n  const initialAnswer = data.initialAnswer || '';\n  const dataGathered = data.dataGathered || '';\n  const validatedAnswer = data.validatedAnswer || '';\n  \n  const hasInitialAnswer = initialAnswer.length >= 10;\n  const hasDataGathered = dataGathered.length >= 20;\n  const hasValidatedAnswer = validatedAnswer.length >= 10;\n  const hasNumbers = /\\d/.test(dataGathered);\n  const isDetailed = dataGathered.length >= 50;\n  \n  if (hasInitialAnswer) {\n    feedback.push('✅ Initial Answer provided');\n  } else {\n    issues.push('❌ Initial Answer too short (need 10+ characters)');\n  }\n  \n  if (hasDataGathered) {\n    feedback.push('✅ Data Gathered provided');\n  } else {\n    issues.push('❌ Data Gathered too short (need 20+ characters)');\n  }\n  \n  if (hasValidatedAnswer) {\n    feedback.push('✅ Validated Answer provided');\n  } else {\n    issues.push('❌ Validated Answer too short (need 10+ characters)');\n  }\n  \n  if (hasNumbers) {\n    feedback.push('✅ Contains metrics/numbers');\n  } else {\n    issues.push('⚠️ No metrics found (data should include numbers)');\n  }\n  \n  if (isDetailed) {\n    feedback.push('🌟 Detailed data collection');\n  }\n  \n  isValid = hasInitialAnswer && hasDataGathered && hasValidatedAnswer;\n  \n  if (isValid && hasNumbers && isDetailed) {\n    quality = 'Excellent';\n  } else if (isValid && hasNumbers) {\n    quality = 'Good';\n  } else if (isValid) {\n    quality = 'Acceptable';\n  } else {\n    quality = 'Poor';\n  }\n}\n\nreturn [{\n  json: {\n    isValid: isValid,\n    quality: quality,\n    feedback: feedback.join('\\n'),\n    issues: issues.join('\\n'),\n    score: quality === 'Excellent' ? 5 : quality === 'Good' ? 4 : quality === 'Acceptable' ? 3 : quality === 'Poor' ? 2 : 1\n  }\n}];"
+      },
+      "id": "tool_validate",
+      "name": "Tool: Validate Data",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1,
+      "position": [900, 600],
+      "parameters": {
+        "name": "validate_data",
+        "description": "Validate problem statement or WHY answer data quality",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "dataType": {
+              "type": "string",
+              "enum": ["problem", "why"],
+              "description": "Type of data to validate"
+            },
+            "data": {
+              "type": "string",
+              "description": "Data to validate (for problem) or object with initialAnswer, dataGathered, validatedAnswer (for why)"
+            }
+          },
+          "required": ["dataType", "data"]
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "={{ $json.response }}",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "send_response",
+      "name": "Send to Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [900, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "{{ $credentials.telegramApi }}",
+          "name": "Telegram Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [[{ "node": "Extract Message Data", "type": "main", "index": 0 }]]
+    },
+    "Extract Message Data": {
+      "main": [[{ "node": "AI Agent - 5 Whys Facilitator", "type": "main", "index": 0 }]]
+    },
+    "AI Agent - 5 Whys Facilitator": {
+      "main": [[{ "node": "Send to Telegram", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "RCA",
+      "id": "rca-tag"
+    },
+    {
+      "name": "AI-Agent",
+      "id": "ai-agent-tag"
+    },
+    {
+      "name": "Production",
+      "id": "prod-tag"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2025-11-19T00:00:00.000Z",
+  "versionId": "3.0.0-ai-agent"
+}

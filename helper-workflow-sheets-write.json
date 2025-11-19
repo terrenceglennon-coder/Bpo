@@ -1,0 +1,143 @@
+{
+  "name": "Tool: Google Sheets Write (for AI Agent)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "workflow_trigger",
+      "name": "When called by another workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.operation }}",
+              "rightValue": "create",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check_operation",
+      "name": "Check Operation Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $json.sheetName }}"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": "={{ $json.data }}"
+        },
+        "options": {}
+      },
+      "id": "append_operation",
+      "name": "Append to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [680, 200],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "{{ $credentials.googleSheetsOAuth2Api }}",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $json.sheetName }}"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": "={{ $json.data }}",
+          "matchingColumns": ["sessionId"]
+        },
+        "options": {}
+      },
+      "id": "update_operation",
+      "name": "Update Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [680, 400],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "{{ $credentials.googleSheetsOAuth2Api }}",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Format success response\nconst operation = $input.first().json.operation || 'unknown';\nconst sheetName = $input.first().json.sheetName || 'unknown';\n\nreturn [{\n  json: {\n    success: true,\n    operation: operation,\n    sheetName: sheetName,\n    message: `Successfully ${operation}d data to ${sheetName}`,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "format_response",
+      "name": "Format Success Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    }
+  ],
+  "connections": {
+    "When called by another workflow": {
+      "main": [[{ "node": "Check Operation Type", "type": "main", "index": 0 }]]
+    },
+    "Check Operation Type": {
+      "main": [
+        [{ "node": "Append to Sheet", "type": "main", "index": 0 }],
+        [{ "node": "Update Sheet", "type": "main", "index": 0 }]
+      ]
+    },
+    "Append to Sheet": {
+      "main": [[{ "node": "Format Success Response", "type": "main", "index": 0 }]]
+    },
+    "Update Sheet": {
+      "main": [[{ "node": "Format Success Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "Tool",
+      "id": "tool-tag"
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "name": "Tool: Google Sheets Read (for AI Agent)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "workflow_trigger",
+      "name": "When called by another workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $json.sheetName }}"
+        },
+        "filtersUI": {
+          "values": "={{ $json.sessionId ? [{ lookupColumn: 'sessionId', lookupValue: $json.sessionId }] : [] }}"
+        },
+        "options": {}
+      },
+      "id": "read_sheet",
+      "name": "Read from Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [460, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "{{ $credentials.googleSheetsOAuth2Api }}",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Filter and format data based on request\nconst sheetName = $input.first().json.sheetName;\nconst sessionId = $input.first().json.sessionId;\nconst whyLevel = $input.first().json.whyLevel;\nconst allData = $input.all().map(item => item.json);\n\nlet filteredData = allData;\n\n// Additional filtering if whyLevel specified\nif (whyLevel && sheetName === '5 Whys Data Collection') {\n  filteredData = allData.filter(row => row.whyLevel == whyLevel);\n}\n\n// Format response\nreturn [{\n  json: {\n    success: true,\n    sheetName: sheetName,\n    sessionId: sessionId,\n    rowCount: filteredData.length,\n    data: filteredData\n  }\n}];"
+      },
+      "id": "format_response",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    }
+  ],
+  "connections": {
+    "When called by another workflow": {
+      "main": [[{ "node": "Read from Google Sheets", "type": "main", "index": 0 }]]
+    },
+    "Read from Google Sheets": {
+      "main": [[{ "node": "Format Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "Tool",
+      "id": "tool-tag"
+    }
+  ]
+}
