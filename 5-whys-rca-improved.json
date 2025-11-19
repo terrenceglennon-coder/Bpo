@@ -1,0 +1,1240 @@
+{
+  "name": "5 Whys RCA Analysis - IMPROVED & FOOLPROOF",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "id": "telegram_trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300],
+      "webhookId": "auto-generated",
+      "credentials": {
+        "telegramApi": {
+          "id": "{{ $credentials.telegramApi }}",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// IMPROVED: Extract command and route to appropriate handler\nconst message = $input.first().json.message.text;\nconst chatId = $input.first().json.message.chat.id;\nconst username = $input.first().json.message.from.username || 'Unknown';\nconst userId = $input.first().json.message.from.id;\n\n// Parse command\nconst parts = message.split(' ');\nconst command = parts[0].toLowerCase();\n\n// Route based on command\nif (command === '/start5whys') {\n  const rcaTicket = parts[1] || 'RCA-' + new Date().toISOString().slice(0,10).replace(/-/g,'') + '-' + Math.floor(Math.random() * 1000);\n  const sessionId = '5WHY-' + Date.now();\n  \n  return [{\n    json: {\n      action: 'START_NEW',\n      sessionId: sessionId,\n      rcaTicket: rcaTicket,\n      chatId: chatId,\n      username: username,\n      userId: userId,\n      timestamp: new Date().toISOString(),\n      status: 'INITIALIZED',\n      currentWhyLevel: 0, // 0 means problem statement not yet collected\n      problemStatement: '',\n      whyData: []\n    }\n  }];\n}\nelse if (command === '/status') {\n  return [{\n    json: {\n      action: 'CHECK_STATUS',\n      chatId: chatId,\n      userId: userId\n    }\n  }];\n}\nelse if (command === '/help') {\n  return [{\n    json: {\n      action: 'SHOW_HELP',\n      chatId: chatId\n    }\n  }];\n}\nelse if (command.startsWith('/ready')) {\n  const whyLevel = parseInt(command.replace('/ready', '')) || 0;\n  return [{\n    json: {\n      action: 'DATA_READY',\n      whyLevel: whyLevel,\n      chatId: chatId,\n      userId: userId,\n      message: message\n    }\n  }];\n}\nelse if (command === '/cancel') {\n  return [{\n    json: {\n      action: 'CANCEL_SESSION',\n      chatId: chatId,\n      userId: userId\n    }\n  }];\n}\nelse {\n  // Unknown command - send help\n  return [{\n    json: {\n      action: 'UNKNOWN_COMMAND',\n      chatId: chatId,\n      originalMessage: message\n    }\n  }];\n}"
+      },
+      "id": "route_command",
+      "name": "Route Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "START_NEW",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "switch_action",
+      "name": "Switch - Route Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "env_check",
+              "name": "sheetsEnabled",
+              "value": "={{ $env.GOOGLE_SHEETS_ENABLED || 'true' }}",
+              "type": "string"
+            },
+            {
+              "id": "timeout_val",
+              "name": "userResponseTimeout",
+              "value": "={{ $env.USER_RESPONSE_TIMEOUT || '3600000' }}",
+              "type": "string"
+            },
+            {
+              "id": "max_retries",
+              "name": "maxRetries",
+              "value": "={{ $env.MAX_API_RETRIES || '3' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "load_env_config",
+      "name": "Load Environment Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "RCA Session Tracker"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "sessionId": "={{ $json.sessionId }}",
+            "rcaTicket": "={{ $json.rcaTicket }}",
+            "owner": "={{ $json.username }}",
+            "userId": "={{ $json.userId }}",
+            "status": "={{ $json.status }}",
+            "started": "={{ $json.timestamp }}",
+            "completed": "",
+            "currentWhy": "0",
+            "lastActivity": "={{ $json.timestamp }}",
+            "problemStatement": ""
+          }
+        },
+        "options": {}
+      },
+      "id": "create_session_tracker",
+      "name": "Create Session Tracker",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [1120, 200],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "{{ $credentials.googleSheetsOAuth2Api }}",
+          "name": "Google Sheets OAuth2"
+        }
+      },
+      "continueOnFail": false,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "=❌ **ERROR CREATING SESSION**\n\nCould not initialize session in Google Sheets.\n\nError: {{ $json.error }}\n\nPlease contact admin or try again later.\n\nUse /help for assistance.",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "error_session_creation",
+      "name": "Error - Session Creation Failed",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1120, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "{{ $credentials.telegramApi }}",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// IMPROVED: Create 5 rows with validation status\nconst sessionId = $input.first().json.sessionId;\nconst rows = [];\n\nfor (let i = 1; i <= 5; i++) {\n  rows.push({\n    json: {\n      sessionId: sessionId,\n      whyLevel: i,\n      question: '', // Will be generated by Claude\n      initialAnswer: '',\n      dataGathered: '',\n      validatedAnswer: '',\n      status: 'Not Started',\n      dataQuality: 'Unknown', // NEW: Track data quality\n      attemptCount: 0, // NEW: Track how many times user tried\n      createdAt: new Date().toISOString(),\n      lastModified: ''\n    }\n  });\n}\n\nreturn rows;"
+      },
+      "id": "prepare_data_rows",
+      "name": "Prepare 5 Data Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "5 Whys Data Collection"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "sessionId": "={{ $json.sessionId }}",
+            "whyLevel": "={{ $json.whyLevel }}",
+            "question": "={{ $json.question }}",
+            "initialAnswer": "={{ $json.initialAnswer }}",
+            "dataGathered": "={{ $json.dataGathered }}",
+            "validatedAnswer": "={{ $json.validatedAnswer }}",
+            "status": "={{ $json.status }}",
+            "dataQuality": "={{ $json.dataQuality }}",
+            "attemptCount": "={{ $json.attemptCount }}",
+            "createdAt": "={{ $json.createdAt }}",
+            "lastModified": "={{ $json.lastModified }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "append_data_rows",
+      "name": "Append Data Rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [1560, 200],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "{{ $credentials.googleSheetsOAuth2Api }}",
+          "name": "Google Sheets OAuth2"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $node['Route Command'].json.chatId }}",
+        "text": "=🎯 **5 WHYS ANALYSIS STARTED**\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n📋 **RCA Ticket:** {{ $node['Route Command'].json.rcaTicket }}\n🆔 **Session ID:** {{ $node['Route Command'].json.sessionId }}\n👤 **Owner:** @{{ $node['Route Command'].json.username }}\n⏰ **Started:** {{ $now.format('YYYY-MM-DD HH:mm:ss') }}\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n📊 **Google Sheet Ready**\n[📝 Open Tracker](https://docs.google.com/spreadsheets/d/{{ $env.GOOGLE_SHEET_ID }})\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n**🔄 HOW THIS WORKS:**\n\n1️⃣ Answer questions step by step\n2️⃣ Gather data & fill Google Sheet\n3️⃣ Reply `/ready[N]` when done\n4️⃣ AI analyzes & asks next question\n5️⃣ Repeat 5 times to find root cause\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n**📱 COMMANDS:**\n• `/status` - Check progress\n• `/help` - Show help\n• `/cancel` - Cancel session\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n**📝 STEP 1: PROBLEM STATEMENT**\n\nDescribe the specific KPI or issue:\n\n**Example:**\n\"AHT increased from 420s to 485s (+15%) starting Nov 12, 2024. Affecting all agents in Team Alpha.\"\n\n**Your turn - what's the problem?**",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "send_welcome",
+      "name": "Send Welcome Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1780, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "{{ $credentials.telegramApi }}",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {
+          "limit": 3600000
+        }
+      },
+      "id": "wait_problem_statement",
+      "name": "Wait - Problem Statement (1h timeout)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2000, 200],
+      "webhookId": "auto-generated"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// IMPROVED: Validate problem statement\nconst sessionId = $node['Route Command'].json.sessionId;\nconst chatId = $node['Route Command'].json.chatId;\nconst input = $input.first().json;\n\n// Extract problem statement from webhook\nlet problemStatement = '';\nif (input.body && input.body.message) {\n  problemStatement = input.body.message;\n} else if (input.body && input.body.text) {\n  problemStatement = input.body.text;\n} else if (input.message) {\n  problemStatement = input.message;\n} else {\n  problemStatement = JSON.stringify(input);\n}\n\n// Validate problem statement\nconst isValid = problemStatement.length >= 20; // Minimum 20 characters\nconst hasNumbers = /\\d/.test(problemStatement); // Should contain numbers (KPI values)\n\nreturn [{\n  json: {\n    sessionId: sessionId,\n    chatId: chatId,\n    problemStatement: problemStatement,\n    isValid: isValid,\n    hasNumbers: hasNumbers,\n    quality: isValid && hasNumbers ? 'Good' : 'Needs Improvement',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "validate_problem_statement",
+      "name": "Validate Problem Statement",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.isValid }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check_problem_valid",
+      "name": "Check - Problem Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2440, 200]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "=⚠️ **PROBLEM STATEMENT TOO SHORT**\n\nYour problem statement needs more detail:\n\"{{ $json.problemStatement }}\"\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n**Please include:**\n✅ Specific KPI name\n✅ Baseline vs current values\n✅ Time period\n✅ Impact scope\n\n**Example:**\n\"AHT increased from 420s to 485s (+15%) starting Nov 12, affecting all agents.\"\n\n**Try again:**",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "ask_better_problem",
+      "name": "Ask for Better Problem Statement",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [2440, 400],
+      "credentials": {
+        "telegramApi": {
+          "id": "{{ $credentials.telegramApi }}",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "RCA Session Tracker"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "problemStatement": "={{ $json.problemStatement }}",
+            "problemQuality": "={{ $json.quality }}",
+            "currentWhy": "0",
+            "status": "Problem Defined",
+            "lastActivity": "={{ $json.timestamp }}"
+          },
+          "matchingColumns": ["sessionId"],
+          "value": {
+            "sessionId": "={{ $json.sessionId }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "update_tracker_problem",
+      "name": "Update Tracker - Problem",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [2660, 100],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "{{ $credentials.googleSheetsOAuth2Api }}",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "loop_counter",
+              "name": "currentWhyLevel",
+              "value": "1",
+              "type": "number"
+            },
+            {
+              "id": "max_whys",
+              "name": "maxWhys",
+              "value": "5",
+              "type": "number"
+            },
+            {
+              "id": "continue_loop",
+              "name": "continueLoop",
+              "value": "true",
+              "type": "boolean"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "init_loop",
+      "name": "Initialize Loop Counter",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2880, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "loop_check",
+              "leftValue": "={{ $json.currentWhyLevel }}",
+              "rightValue": "={{ $json.maxWhys }}",
+              "operator": {
+                "type": "number",
+                "operation": "lte"
+              }
+            },
+            {
+              "id": "continue_check",
+              "leftValue": "={{ $json.continueLoop }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "loop_condition",
+      "name": "Loop - Continue?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3100, 100]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.ANTHROPIC_API_URL || 'https://api.anthropic.com/v1/messages' }}",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={\n  \"model\": \"{{ $env.CLAUDE_MODEL || 'claude-sonnet-4-20250514' }}\",\n  \"max_tokens\": 2000,\n  \"temperature\": 0.7,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"You are facilitating a 5 Whys Root Cause Analysis for a call center.\\n\\n**CONTEXT:**\\nProblem Statement: {{ $json.problemStatement }}\\nCurrent Analysis Level: WHY #{{ $json.currentWhyLevel }}\\n\\n{{ $json.currentWhyLevel > 1 ? '**PREVIOUS WHY:**\\n' + $json.previousWhyAnswer : '' }}\\n\\n**YOUR TASK:**\\n1. Generate a specific WHY question for level {{ $json.currentWhyLevel }}\\n2. Provide data collection guidance\\n3. List 3-5 specific data points to investigate\\n4. Suggest analysis methods\\n\\n**FORMAT YOUR RESPONSE EXACTLY AS:**\\n\\n**WHY #{{ $json.currentWhyLevel }} QUESTION:**\\n[Your specific why question - must be actionable and focused]\\n\\n**DATA TO GATHER:**\\n[Clear description of what evidence to collect]\\n\\n**SPECIFIC CHECKS:**\\n- [Specific data point 1 with metric name]\\n- [Specific data point 2 with metric name]\\n- [Specific data point 3 with metric name]\\n- [Specific data point 4 with metric name]\\n\\n**ANALYSIS METHOD:**\\n[How to analyze the data - compare, trend, segment, etc.]\\n\\n**SUCCESS CRITERIA:**\\n[What would indicate you found the right answer]\\n\\nBe specific, actionable, and data-driven. Focus on root cause, not symptoms.\"\n    }\n  ]\n}",
+        "options": {
+          "timeout": 30000,
+          "retry": {
+            "maxRetries": "={{ $json.maxRetries || 3 }}",
+            "retryDelay": 2000
+          }
+        }
+      },
+      "id": "claude_generate_why",
+      "name": "Claude - Generate WHY Question",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [3320, 100],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// IMPROVED: Extract and validate Claude response\nconst input = $input.first().json;\n\n// Check for error\nif (input.error) {\n  return [{\n    json: {\n      error: true,\n      errorMessage: input.error.message || 'Unknown error',\n      chatId: $node['Initialize Loop Counter'].json.chatId,\n      currentWhyLevel: $node['Initialize Loop Counter'].json.currentWhyLevel\n    }\n  }];\n}\n\n// Extract Claude response\nconst claudeResponse = input.content && input.content[0] ? input.content[0].text : 'Error: No response';\n\n// Validate response has required sections\nconst hasQuestion = claudeResponse.includes('QUESTION:');\nconst hasDataToGather = claudeResponse.includes('DATA TO GATHER:');\nconst hasSpecificChecks = claudeResponse.includes('SPECIFIC CHECKS:');\n\nconst isValid = hasQuestion && hasDataToGather && hasSpecificChecks;\n\nreturn [{\n  json: {\n    sessionId: $node['Initialize Loop Counter'].json.sessionId,\n    chatId: $node['Initialize Loop Counter'].json.chatId,\n    currentWhyLevel: $node['Initialize Loop Counter'].json.currentWhyLevel,\n    claudeGuidance: claudeResponse,\n    isValid: isValid,\n    error: !isValid,\n    errorMessage: !isValid ? 'Claude response missing required sections' : null,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "format_claude_response",
+      "name": "Format & Validate Claude Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3540, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ !$json.error }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check_claude_success",
+      "name": "Check - Claude Success?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3760, 100]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "=❌ **ERROR GENERATING QUESTION**\n\nClaude AI failed to generate the WHY #{{ $json.currentWhyLevel }} question.\n\nError: {{ $json.errorMessage }}\n\n⚠️ Retrying in 5 seconds...\n\nOr use /cancel to stop the session.",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "error_claude",
+      "name": "Error - Claude Failed",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [3760, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "{{ $credentials.telegramApi }}",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "5 Whys Data Collection"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "question": "={{ $json.claudeGuidance }}",
+            "status": "Awaiting Data",
+            "lastModified": "={{ $json.timestamp }}"
+          },
+          "matchingColumns": ["sessionId", "whyLevel"],
+          "value": {
+            "sessionId": "={{ $json.sessionId }}",
+            "whyLevel": "={{ $json.currentWhyLevel }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "update_sheet_question",
+      "name": "Update Sheet - Add Question",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [3980, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "{{ $credentials.googleSheetsOAuth2Api }}",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "=━━━━━━━━━━━━━━━━━━━━━━\n\n🔍 **WHY #{{ $json.currentWhyLevel }} - DATA COLLECTION**\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n{{ $json.claudeGuidance }}\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n📊 **YOUR ACTION PLAN:**\n\n1️⃣ Open Google Sheet\n   [📝 Click here](https://docs.google.com/spreadsheets/d/{{ $env.GOOGLE_SHEET_ID }})\n\n2️⃣ Find row: \"Why #{{ $json.currentWhyLevel }}\"\n\n3️⃣ Fill these columns:\n   • **Initial Answer** - Your hypothesis\n   • **Data Gathered** - Evidence collected\n   • **Validated Answer** - Data-backed conclusion\n\n4️⃣ When complete, reply: `/ready{{ $json.currentWhyLevel }}`\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n⏰ **Timeout:** 1 hour\n💡 **Need help?** Type `/help`\n🚫 **Cancel?** Type `/cancel`\n\n━━━━━━━━━━━━━━━━━━━━━━",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "send_why_instructions",
+      "name": "Send WHY Instructions",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [4200, 0],
+      "credentials": {
+        "telegramApi": {
+          "id": "{{ $credentials.telegramApi }}",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {
+          "limit": "={{ $json.userResponseTimeout || 3600000 }}"
+        }
+      },
+      "id": "wait_why_data",
+      "name": "Wait - WHY Data (with timeout)",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [4420, 0],
+      "webhookId": "auto-generated"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// IMPROVED: Handle timeout\nconst input = $input.first().json;\n\n// Check if this is a timeout (no body)\nif (!input.body || Object.keys(input.body).length === 0) {\n  return [{\n    json: {\n      timeout: true,\n      sessionId: $node['Initialize Loop Counter'].json.sessionId,\n      chatId: $node['Initialize Loop Counter'].json.chatId,\n      currentWhyLevel: $node['Initialize Loop Counter'].json.currentWhyLevel,\n      message: 'User did not respond within timeout period'\n    }\n  }];\n}\n\n// Normal response\nreturn [{\n  json: {\n    timeout: false,\n    sessionId: $node['Initialize Loop Counter'].json.sessionId,\n    chatId: $node['Initialize Loop Counter'].json.chatId,\n    currentWhyLevel: $node['Initialize Loop Counter'].json.currentWhyLevel,\n    userResponse: input.body.message || input.body.text || 'No message',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "check_timeout",
+      "name": "Check for Timeout",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [4640, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ !$json.timeout }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check_not_timeout",
+      "name": "Check - Not Timeout?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [4860, 0]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "=⏰ **SESSION TIMEOUT**\n\n━━━━━━━━━━━━━━━━━━━━━━\n\nNo response received for WHY #{{ $json.currentWhyLevel }} within 1 hour.\n\n📋 **Session ID:** {{ $json.sessionId }}\n📊 **Progress:** {{ $json.currentWhyLevel - 1 }}/5 Whys completed\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n**OPTIONS:**\n\n1️⃣ Resume: Reply `/ready{{ $json.currentWhyLevel }}` when data is filled\n\n2️⃣ Restart: Use `/start5whys` to begin new session\n\n3️⃣ Review: Check [Google Sheet](https://docs.google.com/spreadsheets/d/{{ $env.GOOGLE_SHEET_ID }})\n\n━━━━━━━━━━━━━━━━━━━━━━\n\nSession will remain active for 24 hours.",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "notify_timeout",
+      "name": "Notify - Timeout",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [4860, 200],
+      "credentials": {
+        "telegramApi": {
+          "id": "{{ $credentials.telegramApi }}",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "5 Whys Data Collection"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "sessionId",
+              "lookupValue": "={{ $json.sessionId }}"
+            },
+            {
+              "lookupColumn": "whyLevel",
+              "lookupValue": "={{ $json.currentWhyLevel }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "read_why_data",
+      "name": "Read WHY Data from Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [5080, -100],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "={{ $credentials.googleSheetsOAuth2Api }}",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// IMPROVED: Validate data quality\nconst data = $input.first().json;\n\n// Check if data exists\nif (!data || Object.keys(data).length === 0) {\n  return [{\n    json: {\n      isValid: false,\n      errorMessage: 'No data found in sheet for this Why level',\n      dataQuality: 'Missing',\n      needsRetry: true,\n      ...data\n    }\n  }];\n}\n\n// Validate required fields\nconst initialAnswer = data.initialAnswer || '';\nconst dataGathered = data.dataGathered || '';\nconst validatedAnswer = data.validatedAnswer || '';\n\n// Quality checks\nconst hasInitialAnswer = initialAnswer.length >= 10;\nconst hasDataGathered = dataGathered.length >= 20;\nconst hasValidatedAnswer = validatedAnswer.length >= 10;\nconst hasNumbers = /\\d/.test(dataGathered); // Data should contain metrics\n\nconst isValid = hasInitialAnswer && hasDataGathered && hasValidatedAnswer;\nconst isHighQuality = isValid && hasNumbers && dataGathered.length >= 50;\n\nlet dataQuality = 'Poor';\nif (isHighQuality) dataQuality = 'Excellent';\nelse if (isValid) dataQuality = 'Acceptable';\n\nreturn [{\n  json: {\n    ...data,\n    isValid: isValid,\n    isHighQuality: isHighQuality,\n    dataQuality: dataQuality,\n    hasInitialAnswer: hasInitialAnswer,\n    hasDataGathered: hasDataGathered,\n    hasValidatedAnswer: hasValidatedAnswer,\n    hasNumbers: hasNumbers,\n    needsRetry: !isValid,\n    sessionId: $node['Check for Timeout'].json.sessionId,\n    chatId: $node['Check for Timeout'].json.chatId,\n    currentWhyLevel: $node['Check for Timeout'].json.currentWhyLevel,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "validate_why_data",
+      "name": "Validate WHY Data Quality",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [5300, -100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.isValid }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check_data_valid",
+      "name": "Check - Data Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [5520, -100]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "=⚠️ **DATA INCOMPLETE**\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n**WHY #{{ $json.currentWhyLevel }}** data needs improvement:\n\n{{ !$json.hasInitialAnswer ? '❌ Initial Answer missing or too short\\n' : '✅ Initial Answer provided\\n' }}{{ !$json.hasDataGathered ? '❌ Data Gathered missing or too short\\n' : '✅ Data Gathered provided\\n' }}{{ !$json.hasValidatedAnswer ? '❌ Validated Answer missing\\n' : '✅ Validated Answer provided\\n' }}{{ !$json.hasNumbers ? '⚠️ No metrics/numbers found in data\\n' : '' }}\n━━━━━━━━━━━━━━━━━━━━━━\n\n**REQUIREMENTS:**\n• Initial Answer: At least 10 characters\n• Data Gathered: At least 20 characters + metrics\n• Validated Answer: At least 10 characters\n\n━━━━━━━━━━━━━━━━━━━━━━\n\nPlease:\n1️⃣ Go back to the Google Sheet\n2️⃣ Fill in the missing fields\n3️⃣ Reply `/ready{{ $json.currentWhyLevel }}` again\n\nAttempt {{ ($json.attemptCount || 0) + 1 }}/3",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "request_better_data",
+      "name": "Request Better Data",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [5520, 100],
+      "credentials": {
+        "telegramApi": {
+          "id": "{{ $credentials.telegramApi }}",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "5 Whys Data Collection"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "Data Validated",
+            "dataQuality": "={{ $json.dataQuality }}",
+            "lastModified": "={{ $json.timestamp }}"
+          },
+          "matchingColumns": ["sessionId", "whyLevel"],
+          "value": {
+            "sessionId": "={{ $json.sessionId }}",
+            "whyLevel": "={{ $json.currentWhyLevel }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "update_data_validated",
+      "name": "Update Sheet - Data Validated",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [5740, -200],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "{{ $credentials.googleSheetsOAuth2Api }}",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "=✅ **WHY #{{ $json.currentWhyLevel }} COMPLETE**\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n📊 **Data Quality:** {{ $json.dataQuality }}\n\n{{ $json.isHighQuality ? '🌟 Excellent data collection!' : '✓ Data accepted' }}\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n⏳ Analyzing your data and preparing next question...",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "confirm_why_complete",
+      "name": "Confirm WHY Complete",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [5960, -200],
+      "credentials": {
+        "telegramApi": {
+          "id": "{{ $credentials.telegramApi }}",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "increment",
+              "name": "currentWhyLevel",
+              "value": "={{ $json.currentWhyLevel + 1 }}",
+              "type": "number"
+            },
+            {
+              "id": "previous_answer",
+              "name": "previousWhyAnswer",
+              "value": "={{ $json.validatedAnswer }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "increment_loop",
+      "name": "Increment Loop Counter",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [6180, -200]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "RCA Session Tracker"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "currentWhy": "={{ $json.currentWhyLevel }}",
+            "status": "In Progress",
+            "lastActivity": "={{ $now }}"
+          },
+          "matchingColumns": ["sessionId"],
+          "value": {
+            "sessionId": "={{ $json.sessionId }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "update_tracker_progress",
+      "name": "Update Tracker - Progress",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [6400, -200],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "{{ $credentials.googleSheetsOAuth2Api }}",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "=🎉 **ALL 5 WHYS COMPLETE!**\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n✅ Problem Statement Defined\n✅ WHY #1 Analyzed\n✅ WHY #2 Analyzed\n✅ WHY #3 Analyzed\n✅ WHY #4 Analyzed\n✅ WHY #5 Analyzed\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n🤖 **AI is now generating:**\n• Root Cause Summary\n• Contributing Factors\n• Validation Checks\n• Action Plan\n\n⏳ This will take ~30 seconds...",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "all_whys_complete",
+      "name": "Announce - All WHYs Complete",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [3100, -400],
+      "credentials": {
+        "telegramApi": {
+          "id": "{{ $credentials.telegramApi }}",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "5 Whys Data Collection"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "sessionId",
+              "lookupValue": "={{ $json.sessionId }}"
+            }
+          ]
+        },
+        "options": {
+          "sortBy": "whyLevel"
+        }
+      },
+      "id": "read_all_whys",
+      "name": "Read All 5 WHYs Data",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [3320, -400],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "{{ $credentials.googleSheetsOAuth2Api }}",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// IMPROVED: Compile all data with validation\nconst allWhys = $input.all();\nconst problemStatement = $node['Validate Problem Statement'].json.problemStatement;\nconst sessionId = $node['Initialize Loop Counter'].json.sessionId;\nconst chatId = $node['Initialize Loop Counter'].json.chatId;\n\n// Build comprehensive data structure\nconst compiledData = {\n  sessionId: sessionId,\n  chatId: chatId,\n  problemStatement: problemStatement,\n  whys: [],\n  overallQuality: 'Unknown'\n};\n\nlet qualityScores = [];\n\nfor (let i = 0; i < allWhys.length && i < 5; i++) {\n  const why = allWhys[i].json;\n  compiledData.whys.push({\n    level: i + 1,\n    question: why.question || '',\n    initialAnswer: why.initialAnswer || '',\n    dataGathered: why.dataGathered || '',\n    validatedAnswer: why.validatedAnswer || '',\n    dataQuality: why.dataQuality || 'Unknown'\n  });\n  \n  // Score quality\n  const qualityMap = { 'Excellent': 5, 'Good': 4, 'Acceptable': 3, 'Poor': 2, 'Missing': 1, 'Unknown': 0 };\n  qualityScores.push(qualityMap[why.dataQuality] || 0);\n}\n\n// Calculate overall quality\nconst avgScore = qualityScores.reduce((a, b) => a + b, 0) / qualityScores.length;\nif (avgScore >= 4.5) compiledData.overallQuality = 'Excellent';\nelse if (avgScore >= 3.5) compiledData.overallQuality = 'Good';\nelse if (avgScore >= 2.5) compiledData.overallQuality = 'Acceptable';\nelse compiledData.overallQuality = 'Needs Improvement';\n\nreturn [{ json: compiledData }];"
+      },
+      "id": "compile_all_data",
+      "name": "Compile All Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3540, -400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.ANTHROPIC_API_URL || 'https://api.anthropic.com/v1/messages' }}",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $env.ANTHROPIC_API_KEY }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={\n  \"model\": \"{{ $env.CLAUDE_MODEL || 'claude-sonnet-4-20250514' }}\",\n  \"max_tokens\": 4000,\n  \"temperature\": 0.3,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"You are a Root Cause Analysis expert. Analyze this completed 5 Whys investigation and provide a comprehensive summary.\\n\\n**PROBLEM STATEMENT:**\\n{{ $json.problemStatement }}\\n\\n**5 WHYS ANALYSIS:**\\n\\n{{ $json.whys.map((w, i) => `**WHY #${w.level}:**\\nQuestion: ${w.question}\\nInitial Answer: ${w.initialAnswer}\\nData Gathered: ${w.dataGathered}\\nValidated Answer: ${w.validatedAnswer}\\nData Quality: ${w.dataQuality}\\n`).join('\\n') }}\\n\\n**OVERALL DATA QUALITY:** {{ $json.overallQuality }}\\n\\n━━━━━━━━━━━━━━━━━━━━━━\\n\\n**YOUR TASK:**\\n\\nProvide a comprehensive Root Cause Analysis following this EXACT format:\\n\\n**🎯 ROOT CAUSE:**\\n[State the fundamental root cause in 1-2 sentences. This should be specific, actionable, and within control.]\\n\\n**🔍 CONTRIBUTING FACTORS:**\\n1. [Factor 1 with brief explanation]\\n2. [Factor 2 with brief explanation]\\n3. [Factor 3 with brief explanation]\\n\\n**✅ VALIDATION:**\\n\\nQ1: If we fix the root cause, will the problem go away?\\n[YES/NO + detailed explanation]\\n\\nQ2: Is this root cause within our control to fix?\\n[YES/NO + detailed explanation]\\n\\nQ3: Is this specific enough to create an action plan?\\n[YES/NO + detailed explanation]\\n\\n**📋 RECOMMENDED ACTIONS:**\\n\\n**IMMEDIATE (0-7 days):**\\n- [Specific action 1]\\n- [Specific action 2]\\n\\n**SHORT-TERM (1-4 weeks):**\\n- [Specific action 1]\\n- [Specific action 2]\\n\\n**MID-TERM (1-3 months):**\\n- [Specific action 1]\\n- [Specific action 2]\\n\\n**LONG-TERM (3+ months):**\\n- [Specific action 1]\\n- [Specific action 2]\\n\\n**📊 SUCCESS METRICS:**\\n- [Metric 1 to track improvement]\\n- [Metric 2 to track improvement]\\n- [Metric 3 to track improvement]\\n\\n**⚠️ RISKS & DEPENDENCIES:**\\n- [Risk/dependency 1]\\n- [Risk/dependency 2]\\n\\n**💡 ADDITIONAL INSIGHTS:**\\n[Any patterns, trends, or insights from the analysis]\\n\\nBe specific, actionable, and data-driven. Focus on practical solutions.\"\n    }\n  ]\n}",
+        "options": {
+          "timeout": 60000,
+          "retry": {
+            "maxRetries": "={{ $env.MAX_API_RETRIES || 3 }}",
+            "retryDelay": 3000
+          }
+        }
+      },
+      "id": "claude_final_analysis",
+      "name": "Claude - Final Root Cause Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [3760, -400],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Extract final analysis\nconst input = $input.first().json;\n\nif (input.error) {\n  return [{\n    json: {\n      error: true,\n      errorMessage: input.error.message || 'Failed to generate analysis',\n      sessionId: $node['Compile All Data'].json.sessionId,\n      chatId: $node['Compile All Data'].json.chatId\n    }\n  }];\n}\n\nconst finalAnalysis = input.content && input.content[0] ? input.content[0].text : 'Error: No analysis generated';\n\nreturn [{\n  json: {\n    sessionId: $node['Compile All Data'].json.sessionId,\n    chatId: $node['Compile All Data'].json.chatId,\n    rcaTicket: $node['Route Command'].json.rcaTicket,\n    finalAnalysis: finalAnalysis,\n    overallQuality: $node['Compile All Data'].json.overallQuality,\n    problemStatement: $node['Compile All Data'].json.problemStatement,\n    timestamp: new Date().toISOString(),\n    status: 'COMPLETED',\n    error: false\n  }\n}];"
+      },
+      "id": "format_final_analysis",
+      "name": "Format Final Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3980, -400]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "RCA Final Reports"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "sessionId": "={{ $json.sessionId }}",
+            "rcaTicket": "={{ $json.rcaTicket }}",
+            "problemStatement": "={{ $json.problemStatement }}",
+            "finalAnalysis": "={{ $json.finalAnalysis }}",
+            "overallQuality": "={{ $json.overallQuality }}",
+            "completedAt": "={{ $json.timestamp }}",
+            "status": "={{ $json.status }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "save_final_report",
+      "name": "Save Final Report to Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [4200, -400],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "{{ $credentials.googleSheetsOAuth2Api }}",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "=🎯 **ROOT CAUSE ANALYSIS COMPLETE**\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n📋 **RCA Ticket:** {{ $json.rcaTicket }}\n📊 **Data Quality:** {{ $json.overallQuality }}\n⏰ **Completed:** {{ $now.format('YYYY-MM-DD HH:mm:ss') }}\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n{{ $json.finalAnalysis }}\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n📄 **FULL REPORT:**\n[📊 View Google Sheet](https://docs.google.com/spreadsheets/d/{{ $env.GOOGLE_SHEET_ID }})\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n✅ **Session Complete!**\n\nStart new analysis: `/start5whys [ticket-id]`",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "send_final_report",
+      "name": "Send Final Report",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [4420, -400],
+      "credentials": {
+        "telegramApi": {
+          "id": "{{ $credentials.telegramApi }}",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "RCA Session Tracker"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "COMPLETED",
+            "completed": "={{ $json.timestamp }}",
+            "currentWhy": "5",
+            "overallQuality": "={{ $json.overallQuality }}",
+            "lastActivity": "={{ $json.timestamp }}"
+          },
+          "matchingColumns": ["sessionId"],
+          "value": {
+            "sessionId": "={{ $json.sessionId }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "update_session_complete",
+      "name": "Update Session - COMPLETED",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [4640, -400],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "{{ $credentials.googleSheetsOAuth2Api }}",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chatId }}",
+        "text": "=📖 **5 WHYS RCA BOT - HELP**\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n**🚀 COMMANDS:**\n\n`/start5whys [ticket]` - Start new RCA session\n`/status` - Check current session status\n`/ready[N]` - Mark WHY #N data as ready\n`/cancel` - Cancel current session\n`/help` - Show this help\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n**📋 WORKFLOW:**\n\n1️⃣ Start: `/start5whys RCA-NOV-001`\n2️⃣ Provide problem statement\n3️⃣ For each WHY (1-5):\n   • Read AI question\n   • Gather data\n   • Fill Google Sheet\n   • Reply `/ready[N]`\n4️⃣ Get final root cause analysis\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n**💡 TIPS:**\n\n• Be specific with problem statements\n• Include metrics and numbers\n• Gather actual data, not assumptions\n• Fill all 3 columns (Initial, Data, Validated)\n• Sessions timeout after 1 hour of inactivity\n\n━━━━━━━━━━━━━━━━━━━━━━\n\n**📊 GOOGLE SHEET:**\n[Open Sheet](https://docs.google.com/spreadsheets/d/{{ $env.GOOGLE_SHEET_ID }})\n\n━━━━━━━━━━━━━━━━━━━━━━\n\nNeed assistance? Contact your admin.",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "send_help",
+      "name": "Send Help Message",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [900, 500],
+      "credentials": {
+        "telegramApi": {
+          "id": "{{ $credentials.telegramApi }}",
+          "name": "Telegram Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [[{ "node": "Route Command", "type": "main", "index": 0 }]]
+    },
+    "Route Command": {
+      "main": [[{ "node": "Switch - Route Action", "type": "main", "index": 0 }]]
+    },
+    "Switch - Route Action": {
+      "main": [
+        [{ "node": "Load Environment Config", "type": "main", "index": 0 }],
+        [{ "node": "Send Help Message", "type": "main", "index": 0 }]
+      ]
+    },
+    "Load Environment Config": {
+      "main": [[{ "node": "Create Session Tracker", "type": "main", "index": 0 }]]
+    },
+    "Create Session Tracker": {
+      "main": [
+        [{ "node": "Prepare 5 Data Rows", "type": "main", "index": 0 }],
+        [{ "node": "Error - Session Creation Failed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare 5 Data Rows": {
+      "main": [[{ "node": "Append Data Rows", "type": "main", "index": 0 }]]
+    },
+    "Append Data Rows": {
+      "main": [[{ "node": "Send Welcome Message", "type": "main", "index": 0 }]]
+    },
+    "Send Welcome Message": {
+      "main": [[{ "node": "Wait - Problem Statement (1h timeout)", "type": "main", "index": 0 }]]
+    },
+    "Wait - Problem Statement (1h timeout)": {
+      "main": [[{ "node": "Validate Problem Statement", "type": "main", "index": 0 }]]
+    },
+    "Validate Problem Statement": {
+      "main": [[{ "node": "Check - Problem Valid?", "type": "main", "index": 0 }]]
+    },
+    "Check - Problem Valid?": {
+      "main": [
+        [{ "node": "Update Tracker - Problem", "type": "main", "index": 0 }],
+        [{ "node": "Ask for Better Problem Statement", "type": "main", "index": 0 }]
+      ]
+    },
+    "Ask for Better Problem Statement": {
+      "main": [[{ "node": "Wait - Problem Statement (1h timeout)", "type": "main", "index": 0 }]]
+    },
+    "Update Tracker - Problem": {
+      "main": [[{ "node": "Initialize Loop Counter", "type": "main", "index": 0 }]]
+    },
+    "Initialize Loop Counter": {
+      "main": [[{ "node": "Loop - Continue?", "type": "main", "index": 0 }]]
+    },
+    "Loop - Continue?": {
+      "main": [
+        [{ "node": "Claude - Generate WHY Question", "type": "main", "index": 0 }],
+        [{ "node": "Announce - All WHYs Complete", "type": "main", "index": 0 }]
+      ]
+    },
+    "Claude - Generate WHY Question": {
+      "main": [[{ "node": "Format & Validate Claude Response", "type": "main", "index": 0 }]]
+    },
+    "Format & Validate Claude Response": {
+      "main": [[{ "node": "Check - Claude Success?", "type": "main", "index": 0 }]]
+    },
+    "Check - Claude Success?": {
+      "main": [
+        [{ "node": "Update Sheet - Add Question", "type": "main", "index": 0 }],
+        [{ "node": "Error - Claude Failed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Sheet - Add Question": {
+      "main": [[{ "node": "Send WHY Instructions", "type": "main", "index": 0 }]]
+    },
+    "Send WHY Instructions": {
+      "main": [[{ "node": "Wait - WHY Data (with timeout)", "type": "main", "index": 0 }]]
+    },
+    "Wait - WHY Data (with timeout)": {
+      "main": [[{ "node": "Check for Timeout", "type": "main", "index": 0 }]]
+    },
+    "Check for Timeout": {
+      "main": [[{ "node": "Check - Not Timeout?", "type": "main", "index": 0 }]]
+    },
+    "Check - Not Timeout?": {
+      "main": [
+        [{ "node": "Read WHY Data from Sheet", "type": "main", "index": 0 }],
+        [{ "node": "Notify - Timeout", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read WHY Data from Sheet": {
+      "main": [[{ "node": "Validate WHY Data Quality", "type": "main", "index": 0 }]]
+    },
+    "Validate WHY Data Quality": {
+      "main": [[{ "node": "Check - Data Valid?", "type": "main", "index": 0 }]]
+    },
+    "Check - Data Valid?": {
+      "main": [
+        [{ "node": "Update Sheet - Data Validated", "type": "main", "index": 0 }],
+        [{ "node": "Request Better Data", "type": "main", "index": 0 }]
+      ]
+    },
+    "Request Better Data": {
+      "main": [[{ "node": "Wait - WHY Data (with timeout)", "type": "main", "index": 0 }]]
+    },
+    "Update Sheet - Data Validated": {
+      "main": [[{ "node": "Confirm WHY Complete", "type": "main", "index": 0 }]]
+    },
+    "Confirm WHY Complete": {
+      "main": [[{ "node": "Increment Loop Counter", "type": "main", "index": 0 }]]
+    },
+    "Increment Loop Counter": {
+      "main": [[{ "node": "Update Tracker - Progress", "type": "main", "index": 0 }]]
+    },
+    "Update Tracker - Progress": {
+      "main": [[{ "node": "Loop - Continue?", "type": "main", "index": 0 }]]
+    },
+    "Announce - All WHYs Complete": {
+      "main": [[{ "node": "Read All 5 WHYs Data", "type": "main", "index": 0 }]]
+    },
+    "Read All 5 WHYs Data": {
+      "main": [[{ "node": "Compile All Data", "type": "main", "index": 0 }]]
+    },
+    "Compile All Data": {
+      "main": [[{ "node": "Claude - Final Root Cause Analysis", "type": "main", "index": 0 }]]
+    },
+    "Claude - Final Root Cause Analysis": {
+      "main": [[{ "node": "Format Final Analysis", "type": "main", "index": 0 }]]
+    },
+    "Format Final Analysis": {
+      "main": [[{ "node": "Save Final Report to Sheet", "type": "main", "index": 0 }]]
+    },
+    "Save Final Report to Sheet": {
+      "main": [[{ "node": "Send Final Report", "type": "main", "index": 0 }]]
+    },
+    "Send Final Report": {
+      "main": [[{ "node": "Update Session - COMPLETED", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "YOUR_ERROR_WORKFLOW_ID"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "RCA",
+      "id": "rca-tag"
+    },
+    {
+      "name": "Production",
+      "id": "prod-tag"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2025-11-19T00:00:00.000Z",
+  "versionId": "2.0.0"
+}
